@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+echo "Stopping old instances..."
+killall MacToys 2>/dev/null || true
+
 echo "Building MacToys..."
 swift build -c release
 
