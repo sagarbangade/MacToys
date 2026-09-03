@@ -5,8 +5,10 @@ import Cocoa
 
 @MainActor
 public final class OCREngine {
-    public static func captureAndRecognize(rect: CGRect, display: SCDisplay, screenBounds: CGRect) async throws -> String {
-        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+    public static func captureAndRecognize(rect: CGRect, display: SCDisplay, screenBounds: CGRect, shareableContent: SCShareableContent) async throws -> String {
+        let currentPID = NSRunningApplication.current.processIdentifier
+        let appsToExclude = shareableContent.applications.filter { $0.processID == currentPID }
+        let filter = SCContentFilter(display: display, excludingApplications: appsToExclude, exceptingWindows: [])
         let config = SCStreamConfiguration()
         
         config.width = display.width

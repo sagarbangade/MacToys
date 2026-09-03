@@ -87,7 +87,7 @@ public final class TextExtractorModule: UtilityModule {
             let shareableContent = try await SCShareableContent.current
             guard let display = shareableContent.displays.first(where: { $0.displayID == displayID }) else { return }
             
-            let text = try await OCREngine.captureAndRecognize(rect: rect, display: display, screenBounds: screenBounds)
+            let text = try await OCREngine.captureAndRecognize(rect: rect, display: display, screenBounds: screenBounds, shareableContent: shareableContent)
             
             if !text.isEmpty {
                 NSPasteboard.general.clearContents()
