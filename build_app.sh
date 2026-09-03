@@ -4,7 +4,8 @@ set -e
 echo "Building MacToys..."
 swift build -c release
 
-APP_DIR=".build/release/MacToys.app"
+APP_DIR="/tmp/MacToys.app"
+rm -rf "$APP_DIR"
 MACOS_DIR="$APP_DIR/Contents/MacOS"
 RESOURCES_DIR="$APP_DIR/Contents/Resources"
 
