@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MacToys",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "MacToys", targets: ["MacToys"]),
         .library(name: "MacToysKit", targets: ["MacToysKit"])
