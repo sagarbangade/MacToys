@@ -47,6 +47,7 @@ public final class TextExtractorModule: UtilityModule {
         for screen in NSScreen.screens {
             let window = SelectionOverlayWindow(contentRect: screen.frame)
             let view = SelectionView(frame: window.contentView!.bounds)
+            view.instructionText = "Click and drag to extract text  •  Press ESC to cancel"
             
             view.onCancel = { [weak self] in
                 self?.hideOverlays()

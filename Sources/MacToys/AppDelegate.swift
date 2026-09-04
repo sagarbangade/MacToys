@@ -7,6 +7,7 @@ import ColorPicker
 import KeepAwake
 import ScreenRuler
 import ClipboardManager
+import QRScanner
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -90,6 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.register(KeepAwakeModule())
         ModuleRegistry.shared.register(ScreenRulerModule())
         ModuleRegistry.shared.register(ClipboardModule())
+        ModuleRegistry.shared.register(QRScannerModule())
     }
     
     @objc func openPreferences() {

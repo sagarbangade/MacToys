@@ -38,6 +38,10 @@ let package = Package(
             name: "ClipboardManager",
             dependencies: ["MacToysKit"]
         ),
+        .target(
+            name: "QRScanner",
+            dependencies: ["MacToysKit"]
+        ),
         .executableTarget(
             name: "MacToys",
             dependencies: [
@@ -46,7 +50,8 @@ let package = Package(
                 "ColorPicker", 
                 "KeepAwake", 
                 "ScreenRuler",
-                "ClipboardManager"
+                "ClipboardManager",
+                "QRScanner"
             ]
         ),
         .testTarget(
