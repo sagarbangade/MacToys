@@ -9,7 +9,7 @@
     <style>
         body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         #header { padding: 16px; text-align: center; background-color: #1a1a1a; font-weight: bold; font-size: 18px; z-index: 10; border-bottom: 1px solid #333; }
-        #reader { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; }
+        #reader { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #000; }
         #status { padding: 12px; text-align: center; background-color: #2c3e50; font-size: 14px; z-index: 10; transition: background-color 0.3s; word-wrap: break-word; }
         #status.connected { background-color: #27ae60; }
         #status.error { background-color: #c0392b; }
@@ -17,15 +17,28 @@
         .success-overlay.show { opacity: 1; }
         .success-icon { font-size: 64px; margin-bottom: 16px; }
         
-        /* Make sure camera fills properly */
+        /* Start Button UI */
+        #start-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 16px 32px;
+            font-size: 18px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            display: none; /* hidden until WebRTC connects */
+        }
+        #start-btn:active { background-color: #2980b9; transform: scale(0.98); }
+        
         #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; }
-        #reader__dashboard_section_csr { display: none !important; } /* Hide the default start/stop buttons if possible */
     </style>
 </head>
 <body>
     <div id="header">MacToys Scanner</div>
     <div id="reader">
-        <div style="color: #666; text-align: center; padding: 20px;">Camera initializing...</div>
+        <div id="init-text" style="color: #666; margin-bottom: 20px;">Waiting for connection...</div>
+        <button id="start-btn" onclick="startScanner()">Tap to Start Camera</button>
     </div>
     <div id="status">Starting up...</div>
     
@@ -37,15 +50,16 @@
     <script>
         const statusEl = document.getElementById('status');
         const overlayEl = document.getElementById('success-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const initText = document.getElementById('init-text');
         
         function setStatus(msg, state = '') {
             statusEl.textContent = msg;
             statusEl.className = state;
-            console.log("STATUS: ", msg);
         }
 
         window.onerror = function(msg, url, line) {
-            setStatus("JS Error: " + msg + " at line " + line, "error");
+            setStatus("Error: " + msg, "error");
             return false;
         };
 
@@ -55,8 +69,8 @@
         if (!roomId) {
             setStatus('Error: No room ID in URL', 'error');
         } else {
-            setStatus('Initializing WebRTC...');
-            setTimeout(initPeer, 500); // slight delay to ensure scripts parsed
+            setStatus('Connecting to Mac...');
+            setTimeout(initPeer, 200);
         }
 
         let dataConnection = null;
@@ -68,13 +82,12 @@
                 const peer = new Peer();
                 
                 peer.on('open', (id) => {
-                    setStatus('Connecting to Mac (Room: ' + roomId.substring(0,4) + ')...');
-                    
                     dataConnection = peer.connect(roomId, { reliable: true });
                     
                     dataConnection.on('open', () => {
-                        setStatus('Connected! Tap allow camera.', 'connected');
-                        startScanner();
+                        setStatus('Connected!', 'connected');
+                        initText.style.display = 'none';
+                        startBtn.style.display = 'block'; // Show the button!
                     });
                     
                     dataConnection.on('close', () => {
@@ -91,35 +104,42 @@
                     setStatus('PeerJS Error: ' + err.type, 'error');
                 });
             } catch (e) {
-                setStatus('Failed to init Peer: ' + e.message, 'error');
+                setStatus('Failed to connect: ' + e.message, 'error');
             }
         }
 
         function startScanner() {
             try {
-                if (html5QrcodeScanner) return;
+                startBtn.style.display = 'none';
+                initText.style.display = 'block';
+                initText.textContent = "Requesting camera permission...";
                 
-                document.getElementById('reader').innerHTML = ''; // clear loading text
+                if (html5QrcodeScanner) return;
                 
                 const html5QrCode = new Html5Qrcode("reader");
                 html5QrcodeScanner = html5QrCode;
                 
                 const config = { fps: 10, qrbox: { width: 250, height: 250 } };
                 
+                // The explicit button tap allows this to trigger the OS permission prompt
                 html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
+                    .then(() => {
+                        initText.style.display = 'none';
+                    })
                     .catch(err => {
-                        setStatus("Camera error: " + err, "error");
-                        // Fallback UI
-                        document.getElementById('reader').innerHTML = '<div style="color:red; padding: 20px; text-align:center;">Camera access denied or failed.<br><br><button onclick="startScanner()" style="padding:10px 20px; font-size:16px;">Retry</button></div>';
+                        setStatus("Camera blocked. Please allow access.", "error");
+                        initText.style.display = 'none';
+                        startBtn.style.display = 'block';
+                        startBtn.textContent = "Try Again";
                     });
             } catch (e) {
-                setStatus('Scanner crash: ' + e.message, 'error');
+                setStatus('Scanner error: ' + e.message, 'error');
             }
         }
 
         function stopScanner() {
             if (html5QrcodeScanner) {
-                html5QrcodeScanner.stop().catch(err => console.error(err));
+                html5QrcodeScanner.stop().catch(e => console.error(e));
                 html5QrcodeScanner = null;
             }
         }
@@ -128,7 +148,6 @@
             if (isProcessing || !dataConnection || !dataConnection.open) return;
             
             isProcessing = true;
-            
             dataConnection.send({ type: 'scan', payload: decodedText });
             
             overlayEl.classList.add('show');
