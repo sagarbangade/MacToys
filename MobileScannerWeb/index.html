@@ -4,25 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MacToys Mobile Scanner</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <style>
         body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         #header { padding: 16px; text-align: center; background-color: #1a1a1a; font-weight: bold; font-size: 18px; z-index: 10; border-bottom: 1px solid #333; }
         #reader { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; }
-        #status { padding: 12px; text-align: center; background-color: #2c3e50; font-size: 14px; z-index: 10; transition: background-color 0.3s; }
+        #status { padding: 12px; text-align: center; background-color: #2c3e50; font-size: 14px; z-index: 10; transition: background-color 0.3s; word-wrap: break-word; }
         #status.connected { background-color: #27ae60; }
         #status.error { background-color: #c0392b; }
-        .success-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(39, 174, 96, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+        .success-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(39, 174, 96, 0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         .success-overlay.show { opacity: 1; }
         .success-icon { font-size: 64px; margin-bottom: 16px; }
-        video { object-fit: cover; } /* Ensure camera fills space */
+        
+        /* Make sure camera fills properly */
+        #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; }
+        #reader__dashboard_section_csr { display: none !important; } /* Hide the default start/stop buttons if possible */
     </style>
 </head>
 <body>
     <div id="header">MacToys Scanner</div>
-    <div id="reader"></div>
-    <div id="status">Connecting to Mac...</div>
+    <div id="reader">
+        <div style="color: #666; text-align: center; padding: 20px;">Camera initializing...</div>
+    </div>
+    <div id="status">Starting up...</div>
     
     <div id="success-overlay" class="success-overlay">
         <div class="success-icon">✓</div>
@@ -33,66 +38,83 @@
         const statusEl = document.getElementById('status');
         const overlayEl = document.getElementById('success-overlay');
         
-        // 1. Get Room ID from URL (e.g. ?room=xyz)
+        function setStatus(msg, state = '') {
+            statusEl.textContent = msg;
+            statusEl.className = state;
+            console.log("STATUS: ", msg);
+        }
+
+        window.onerror = function(msg, url, line) {
+            setStatus("JS Error: " + msg + " at line " + line, "error");
+            return false;
+        };
+
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
         
         if (!roomId) {
             setStatus('Error: No room ID in URL', 'error');
         } else {
-            initPeer();
+            setStatus('Initializing WebRTC...');
+            setTimeout(initPeer, 500); // slight delay to ensure scripts parsed
         }
 
         let dataConnection = null;
         let html5QrcodeScanner = null;
         let isProcessing = false;
 
-        function setStatus(msg, state = '') {
-            statusEl.textContent = msg;
-            statusEl.className = state;
-        }
-
         function initPeer() {
-            // Generate a random ID for the phone
-            const peer = new Peer();
-            
-            peer.on('open', (id) => {
-                setStatus('Connecting to Mac...');
-                // Connect to the Mac's known room ID
-                dataConnection = peer.connect(roomId, { reliable: true });
+            try {
+                const peer = new Peer();
                 
-                dataConnection.on('open', () => {
-                    setStatus('Connected to Mac! Ready to scan.', 'connected');
-                    startScanner();
+                peer.on('open', (id) => {
+                    setStatus('Connecting to Mac (Room: ' + roomId.substring(0,4) + ')...');
+                    
+                    dataConnection = peer.connect(roomId, { reliable: true });
+                    
+                    dataConnection.on('open', () => {
+                        setStatus('Connected! Tap allow camera.', 'connected');
+                        startScanner();
+                    });
+                    
+                    dataConnection.on('close', () => {
+                        setStatus('Disconnected from Mac', 'error');
+                        stopScanner();
+                    });
+                    
+                    dataConnection.on('error', (err) => {
+                        setStatus('Connection error: ' + err, 'error');
+                    });
                 });
-                
-                dataConnection.on('close', () => {
-                    setStatus('Disconnected from Mac', 'error');
-                    stopScanner();
-                });
-                
-                dataConnection.on('error', (err) => {
-                    setStatus('Connection error', 'error');
-                });
-            });
 
-            peer.on('error', (err) => {
-                setStatus('PeerJS Error: ' + err.type, 'error');
-            });
+                peer.on('error', (err) => {
+                    setStatus('PeerJS Error: ' + err.type, 'error');
+                });
+            } catch (e) {
+                setStatus('Failed to init Peer: ' + e.message, 'error');
+            }
         }
 
         function startScanner() {
-            if (html5QrcodeScanner) return;
-            
-            const html5QrCode = new Html5Qrcode("reader");
-            html5QrcodeScanner = html5QrCode;
-            
-            const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: window.innerHeight / window.innerWidth };
-            
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
-                .catch(err => {
-                    setStatus("Camera error: " + err, "error");
-                });
+            try {
+                if (html5QrcodeScanner) return;
+                
+                document.getElementById('reader').innerHTML = ''; // clear loading text
+                
+                const html5QrCode = new Html5Qrcode("reader");
+                html5QrcodeScanner = html5QrCode;
+                
+                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                
+                html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
+                    .catch(err => {
+                        setStatus("Camera error: " + err, "error");
+                        // Fallback UI
+                        document.getElementById('reader').innerHTML = '<div style="color:red; padding: 20px; text-align:center;">Camera access denied or failed.<br><br><button onclick="startScanner()" style="padding:10px 20px; font-size:16px;">Retry</button></div>';
+                    });
+            } catch (e) {
+                setStatus('Scanner crash: ' + e.message, 'error');
+            }
         }
 
         function stopScanner() {
@@ -107,18 +129,11 @@
             
             isProcessing = true;
             
-            // Send securely over WebRTC Data Channel
             dataConnection.send({ type: 'scan', payload: decodedText });
             
-            // Show UI feedback
             overlayEl.classList.add('show');
+            if (navigator.vibrate) navigator.vibrate(200);
             
-            // Haptic feedback if supported
-            if (navigator.vibrate) {
-                navigator.vibrate(200);
-            }
-            
-            // Wait 2 seconds, then resume
             setTimeout(() => {
                 overlayEl.classList.remove('show');
                 isProcessing = false;
@@ -126,7 +141,7 @@
         }
 
         function onScanFailure(error) {
-            // Ignore ongoing scan failures
+            // ignore
         }
     </script>
 </body>
