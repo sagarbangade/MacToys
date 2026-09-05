@@ -17,9 +17,6 @@ public final class OCREngine {
         
         let cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         
-        // Convert to normalized coordinates (bottom-left origin)
-        // `rect` is in points relative to `screenBounds` (also in points)
-        // Vision's regionOfInterest uses a bottom-left origin, normalized [0, 1].
         let normalizedRect = CGRect(
             x: rect.origin.x / screenBounds.width,
             y: rect.origin.y / screenBounds.height,
@@ -30,7 +27,7 @@ public final class OCREngine {
         return try await recognizeText(in: cgImage, regionOfInterest: normalizedRect)
     }
     
-    private static func recognizeText(in image: CGImage, regionOfInterest: CGRect) async throws -> String {
+    public static func recognizeText(in image: CGImage, regionOfInterest: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error = error {
@@ -61,7 +58,6 @@ public final class OCREngine {
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
             
-            // Clamp to [0,1] to prevent crashes if selection goes slightly out of bounds
             let clampedRect = CGRect(
                 x: max(0, min(1, regionOfInterest.origin.x)),
                 y: max(0, min(1, regionOfInterest.origin.y)),

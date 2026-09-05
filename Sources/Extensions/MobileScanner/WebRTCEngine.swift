@@ -6,6 +6,7 @@ import Cocoa
 protocol WebRTCEngineDelegate: AnyObject {
     func webRTCEngine(_ engine: WebRTCEngine, didGenerateRoomID roomID: String)
     func webRTCEngine(_ engine: WebRTCEngine, didReceivePayload payload: String)
+    func webRTCEngine(_ engine: WebRTCEngine, didReceiveOCRImage base64String: String)
     func webRTCEngine(_ engine: WebRTCEngine, didEncounterError error: String)
 }
 
@@ -30,10 +31,6 @@ class WebRTCEngine: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
     
     func startReceiving() {
-        // We load a local HTML string that uses PeerJS to act as the receiver.
-        // It connects to PeerJS, gets an ID, and sends it to Swift.
-        // Then it waits for a connection and messages.
-        
         let html = """
         <!DOCTYPE html>
         <html>
@@ -54,9 +51,12 @@ class WebRTCEngine: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     });
                     
                     peer.on('connection', (conn) => {
+                        // Support larger chunks for images
                         conn.on('data', (data) => {
                             if (data && data.type === 'scan' && data.payload) {
                                 sendMessageToSwift('payload', data.payload);
+                            } else if (data && data.type === 'image_ocr' && data.payload) {
+                                sendMessageToSwift('image_ocr', data.payload);
                             }
                         });
                     });
@@ -93,6 +93,10 @@ class WebRTCEngine: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             case "payload":
                 if let payload = body["payload"] as? String {
                     self.delegate?.webRTCEngine(self, didReceivePayload: payload)
+                }
+            case "image_ocr":
+                if let payload = body["payload"] as? String {
+                    self.delegate?.webRTCEngine(self, didReceiveOCRImage: payload)
                 }
             case "error":
                 if let errorMsg = body["payload"] as? String {

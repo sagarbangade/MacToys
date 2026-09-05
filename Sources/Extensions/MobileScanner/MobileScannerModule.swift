@@ -2,6 +2,7 @@ import Foundation
 import Cocoa
 import SwiftUI
 import MacToysKit
+import TextExtractor
 @preconcurrency import KeyboardShortcuts
 
 @MainActor
@@ -12,13 +13,12 @@ public final class MobileScannerModule: UtilityModule, WebRTCEngineDelegate {
     public let iconSymbol = "iphone.and.arrow.forward"
     
     public var isEnabled: Bool = false
-    public let requiredPermissions: [PermissionRequirement] = [] // WebRTC handles this
+    public let requiredPermissions: [PermissionRequirement] = []
     public var shortcutName: KeyboardShortcuts.Name? { .mobileScanner }
     
     private var overlayWindow: MobileScannerOverlayWindow?
     private var engine: WebRTCEngine?
     
-    // The user will need to host the index.html on their GitHub Pages and put the URL here.
     @AppStorage("mobileScannerGithubURL") private var githubPagesURL: String = "https://sagarbangade.github.io/mactoys-mobile-scanner/"
     
     public init() {}
@@ -50,7 +50,6 @@ public final class MobileScannerModule: UtilityModule, WebRTCEngineDelegate {
         let window = MobileScannerOverlayWindow()
         self.overlayWindow = window
         
-        // Start engine
         engine = WebRTCEngine()
         engine?.delegate = self
         engine?.startReceiving()
@@ -88,14 +87,42 @@ public final class MobileScannerModule: UtilityModule, WebRTCEngineDelegate {
     }
     
     func webRTCEngine(_ engine: WebRTCEngine, didReceivePayload payload: String) {
-        // Success!
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(payload, forType: .string)
         NSSound(named: "Purr")?.play()
         
-        // Auto-close after receiving
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.hideOverlay()
+        }
+    }
+    
+    func webRTCEngine(_ engine: WebRTCEngine, didReceiveOCRImage base64String: String) {
+        let components = base64String.components(separatedBy: ",")
+        let cleanBase64 = components.count > 1 ? components[1] : base64String
+        
+        guard let data = Data(base64Encoded: cleanBase64, options: .ignoreUnknownCharacters),
+              let nsImage = NSImage(data: data),
+              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            print("Failed to decode image from WebRTC")
+            return
+        }
+        
+        Task {
+            do {
+                let text = try await OCREngine.recognizeText(in: cgImage)
+                if !text.isEmpty {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    NSSound(named: "Glass")?.play()
+                    self.hideOverlay()
+                } else {
+                    print("OCR found no text")
+                    NSSound(named: "Basso")?.play()
+                }
+            } catch {
+                print("OCR Error: \(error)")
+                NSSound(named: "Basso")?.play()
+            }
         }
     }
     
@@ -120,9 +147,6 @@ struct MobileScannerSettingsView: View {
             Section(header: Text("Configuration")) {
                 TextField("GitHub Pages URL", text: $githubPagesURL)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                Text("This must point to the folder where you host MobileScannerWeb/index.html")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
         }
         .padding()

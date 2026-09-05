@@ -53,7 +53,7 @@ let package = Package(
         ),
         .target(
             name: "MobileScanner",
-            dependencies: ["MacToysKit"],
+            dependencies: ["MacToysKit", "TextExtractor"],
             path: "Sources/Extensions/MobileScanner"
         ),
 

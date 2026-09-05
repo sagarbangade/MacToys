@@ -6,16 +6,9 @@ interface UseCameraReturn {
   error: string | null
   start: () => void
   captureFrame: () => ImageData | null
+  getJpegBase64: (quality?: number) => string | null
 }
 
-/**
- * Raw MediaDevices camera hook.
- *
- * Forces the main back camera by requesting the highest resolution available
- * with facingMode "environment". On multi-lens Android phones, the OS maps
- * the highest-res "environment" stream to the primary 1x sensor (not the
- * ultrawide or macro).
- */
 export function useCamera(): UseCameraReturn {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -23,18 +16,16 @@ export function useCamera(): UseCameraReturn {
   const [started, setStarted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Create an offscreen canvas for frame capture
   useEffect(() => {
     canvasRef.current = document.createElement('canvas')
   }, [])
 
   const start = useCallback(async () => {
     try {
-      // These constraints force the OS to select the main (highest-res) back camera
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { exact: 'environment' },
-          width: { ideal: 3840 },    // Request 4K — OS picks the sensor capable of it
+          width: { ideal: 3840 },
           height: { ideal: 2160 },
         },
         audio: false,
@@ -49,7 +40,6 @@ export function useCamera(): UseCameraReturn {
         setError(null)
       }
     } catch (err) {
-      // Fallback: if exact environment fails, try without exact
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -88,12 +78,25 @@ export function useCamera(): UseCameraReturn {
     return ctx.getImageData(0, 0, canvas.width, canvas.height)
   }, [])
 
-  // Cleanup on unmount
+  const getJpegBase64 = useCallback((quality = 0.8): string | null => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas || video.readyState < 2) return null
+
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    ctx.drawImage(video, 0, 0)
+    return canvas.toDataURL('image/jpeg', quality)
+  }, [])
+
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach(t => t.stop())
     }
   }, [])
 
-  return { videoRef, started, error, start, captureFrame }
+  return { videoRef, started, error, start, captureFrame, getJpegBase64 }
 }
