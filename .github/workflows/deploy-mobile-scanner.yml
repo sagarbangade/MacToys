@@ -1,0 +1,59 @@
+name: Deploy Mobile Scanner
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'WebApps/mobile-scanner/**'
+      - '.github/workflows/deploy-mobile-scanner.yml'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Web App
+        working-directory: ./WebApps/mobile-scanner
+        run: npm run build
+
+      - name: Deploy to Public Repo
+        env:
+          # You must create this secret in your MacToys repo settings
+          API_TOKEN_GITHUB: ${{ secrets.DEPLOY_PAT }}
+        run: |
+          if [ -z "$API_TOKEN_GITHUB" ]; then
+            echo "Error: DEPLOY_PAT secret is not set!"
+            exit 1
+          fi
+
+          echo "Configuring Git..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Cloning target repository..."
+          git clone https://x-access-token:$API_TOKEN_GITHUB@github.com/sagarbangade/mactoys-mobile-scanner.git target-repo
+
+          echo "Clearing old files..."
+          # Delete everything except the .git directory
+          find target-repo -maxdepth 1 ! -name '.git' ! -name '.' ! -name 'target-repo' -exec rm -rf {} +
+
+          echo "Copying new build artifacts..."
+          cp -R WebApps/mobile-scanner/dist/* target-repo/
+
+          echo "Committing and pushing..."
+          cd target-repo
+          git add -A
+          git commit -m "Auto-deploy from MacToys CI" || echo "No changes to deploy"
+          git push origin main
