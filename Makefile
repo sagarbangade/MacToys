@@ -6,9 +6,11 @@ RESOURCES_DIR = $(APP_BUNDLE)/Contents/Resources
 ICONSET_DIR = $(DIST_DIR)/AppIcon.iconset
 ICON_SRC = Sources/MacToys/Assets.xcassets/AppIcon.appiconset/mactoys_app_icon.png
 
-.PHONY: all build run install clean icon
+.PHONY: all build run install clean icon web deploy-web
 
 all: build
+
+# ─── Swift Desktop App ──────────────────────────────────────
 
 build:
 	@echo "Stopping old instances..."
@@ -54,8 +56,23 @@ install: build
 	@cp -R $(APP_BUNDLE) "/Applications/$(APP_NAME).app"
 	@echo "✅ Installed to /Applications/$(APP_NAME).app"
 
+# ─── Web Companion Apps ─────────────────────────────────────
+
+web:
+	@echo "Building web apps..."
+	@cd WebApps/mobile-scanner && npm run build
+	@echo "✅ Web build complete!"
+
+deploy-web:
+	@echo "Building and deploying web apps..."
+	@chmod +x scripts/deploy-web.sh
+	@scripts/deploy-web.sh
+
+# ─── Utility ────────────────────────────────────────────────
+
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(DIST_DIR)
 	@rm -rf .build
+	@rm -rf WebApps/*/dist
 	@echo "Clean complete."

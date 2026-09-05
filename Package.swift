@@ -12,47 +12,59 @@ let package = Package(
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "1.9.4")
     ],
     targets: [
+        // ─── Core SDK ───────────────────────────────────────────
         .target(
             name: "MacToysKit",
             dependencies: [
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ]
         ),
+
+        // ─── Extensions ─────────────────────────────────────────
         .target(
             name: "TextExtractor",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/TextExtractor"
         ),
         .target(
             name: "ColorPicker",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/ColorPicker"
         ),
         .target(
             name: "KeepAwake",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/KeepAwake"
         ),
         .target(
             name: "ScreenRuler",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/ScreenRuler"
         ),
         .target(
             name: "ClipboardManager",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/ClipboardManager"
         ),
         .target(
             name: "QRScanner",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/QRScanner"
         ),
         .target(
             name: "MobileScanner",
-            dependencies: ["MacToysKit"]
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/MobileScanner"
         ),
+
+        // ─── App Shell ──────────────────────────────────────────
         .executableTarget(
             name: "MacToys",
             dependencies: [
-                "MacToysKit", 
-                "TextExtractor", 
-                "ColorPicker", 
-                "KeepAwake", 
+                "MacToysKit",
+                "TextExtractor",
+                "ColorPicker",
+                "KeepAwake",
                 "ScreenRuler",
                 "ClipboardManager",
                 "QRScanner",

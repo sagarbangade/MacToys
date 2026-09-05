@@ -4,3 +4,7 @@ build/
 *.xcodeproj/
 xcuserdata/
 dist/
+
+# Web
+node_modules/
+WebApps/*/dist/

@@ -1,0 +1,7 @@
+{
+  "name": "mactoys",
+  "private": true,
+  "workspaces": [
+    "WebApps/*"
+  ]
+}
