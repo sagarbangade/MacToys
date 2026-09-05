@@ -19,8 +19,7 @@ public final class MobileScannerModule: UtilityModule, WebRTCEngineDelegate {
     private var engine: WebRTCEngine?
     
     // The user will need to host the index.html on their GitHub Pages and put the URL here.
-    // For now, we use a placeholder or their specific github.io URL.
-    @AppStorage("mobileScannerGithubURL") private var githubPagesURL: String = "https://sagarbangade.github.io/MacToys"
+    @AppStorage("mobileScannerGithubURL") private var githubPagesURL: String = "https://sagarbangade.github.io/mactoys-mobile-scanner/"
     
     public init() {}
     
@@ -112,7 +111,7 @@ public extension KeyboardShortcuts.Name {
 }
 
 struct MobileScannerSettingsView: View {
-    @AppStorage("mobileScannerGithubURL") private var githubPagesURL: String = "https://sagarbangade.github.io/MacToys"
+    @AppStorage("mobileScannerGithubURL") private var githubPagesURL: String = "https://sagarbangade.github.io/mactoys-mobile-scanner/"
     
     var body: some View {
         Form {
