@@ -4,34 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MacToys Mobile Scanner</title>
-    <!-- Use specific stable versions -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #111; color: #fff; font-family: -apple-system, system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        #header { padding: 16px; text-align: center; background-color: #000; font-weight: bold; font-size: 18px; z-index: 10; border-bottom: 1px solid #333; }
-        #reader-container { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #000; overflow: hidden; }
-        #reader { width: 100%; max-width: 500px; }
+        body { margin: 0; padding: 0; background-color: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #header { padding: 16px; text-align: center; background-color: #1a1a1a; font-weight: bold; font-size: 18px; z-index: 10; border-bottom: 1px solid #333; }
+        #reader-container { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #000; position: relative; }
+        #reader { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+        #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; }
         
-        #status-bar { padding: 12px; text-align: center; background-color: #c0392b; font-size: 14px; z-index: 10; word-wrap: break-word; font-weight: bold; }
+        #status-bar { padding: 12px; text-align: center; background-color: #c0392b; font-size: 14px; z-index: 10; font-weight: bold; }
         #status-bar.connected { background-color: #27ae60; }
-        #status-bar.warning { background-color: #f39c12; }
         
         .success-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(39, 174, 96, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
         .success-overlay.show { opacity: 1; pointer-events: all; }
         .success-icon { font-size: 80px; margin-bottom: 16px; }
         
-        /* Style the built-in scanner UI to look good on dark mode */
-        #reader button { padding: 12px 24px; font-size: 16px; background-color: #3498db; color: white; border: none; border-radius: 8px; margin: 10px; font-weight: bold; }
-        #reader select { padding: 10px; font-size: 16px; margin: 10px; max-width: 90%; }
-        #reader a { color: #3498db; }
-        #reader__dashboard_section_swaplink { display: none !important; }
+        .btn { background-color: #3498db; color: white; border: none; border-radius: 50px; padding: 16px 32px; font-size: 18px; font-weight: bold; margin: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        .btn:active { background-color: #2980b9; transform: scale(0.98); }
+        
+        #controls { position: absolute; bottom: 20px; display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 50; }
+        #cam-label { background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-bottom: 10px; display: none; }
+        #switch-btn { background-color: #34495e; padding: 12px 24px; font-size: 14px; display: none; }
     </style>
 </head>
 <body>
     <div id="header">MacToys Scanner</div>
     <div id="reader-container">
-        <div id="reader"></div>
+        <div id="reader">
+            <button id="start-btn" class="btn" onclick="initScanner()">Tap to Start Camera</button>
+        </div>
+        <div id="controls">
+            <div id="cam-label">Camera: Default</div>
+            <button id="switch-btn" class="btn" onclick="switchCamera()">🔄 Switch Lens</button>
+        </div>
     </div>
     <div id="status-bar">Waiting for WebRTC connection...</div>
     
@@ -43,90 +49,131 @@
     <script>
         const statusEl = document.getElementById('status-bar');
         const overlayEl = document.getElementById('success-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const switchBtn = document.getElementById('switch-btn');
+        const camLabel = document.getElementById('cam-label');
         
         function setStatus(msg, state = '') {
             statusEl.textContent = msg;
             statusEl.className = state;
-            console.log("STATUS:", msg);
         }
 
-        // 1. Initialize WebRTC in the background immediately
-        const urlParams = new URLSearchParams(window.location.search);
-        const roomId = urlParams.get('room');
         let dataConnection = null;
-
-        if (roomId) {
-            try {
-                const peer = new Peer();
-                peer.on('open', (id) => {
-                    setStatus('Connecting to Mac...', 'warning');
-                    dataConnection = peer.connect(roomId, { reliable: true });
-                    
-                    dataConnection.on('open', () => {
-                        setStatus('Connected to Mac! Ready to scan.', 'connected');
-                    });
-                    
-                    dataConnection.on('close', () => {
-                        setStatus('Disconnected from Mac.', 'error');
-                    });
-                    
-                    dataConnection.on('error', (err) => {
-                        setStatus('Mac Connection Error: ' + err, 'error');
-                    });
-                });
-                peer.on('error', (err) => {
-                    setStatus('Network Error: ' + err.type, 'error');
-                });
-            } catch (e) {
-                setStatus('WebRTC Error: ' + e.message, 'error');
-            }
-        } else {
-            setStatus('Error: No Room ID found in URL.', 'error');
-        }
-
-        // 2. Initialize Camera UI immediately (using the robust built-in UI)
+        let qrCodeEngine = null;
         let isProcessing = false;
         
-        try {
-            // Html5QrcodeScanner provides its own "Request Camera" button and handles all browser quirks
-            const html5QrcodeScanner = new Html5QrcodeScanner(
-                "reader",
-                { fps: 10, qrbox: { width: 250, height: 250 }, rememberLastUsedCamera: true },
-                /* verbose= */ false
-            );
+        let availableCameras = [];
+        let currentCameraIndex = 0;
+
+        // 1. WebRTC Setup
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room');
+
+        if (roomId) {
+            const peer = new Peer();
+            peer.on('open', (id) => {
+                setStatus('Connecting to Mac...');
+                dataConnection = peer.connect(roomId, { reliable: true });
+                dataConnection.on('open', () => setStatus('Connected to Mac! Ready.', 'connected'));
+                dataConnection.on('close', () => setStatus('Disconnected from Mac.', 'error'));
+                dataConnection.on('error', (err) => setStatus('Connection Error: ' + err, 'error'));
+            });
+            peer.on('error', (err) => setStatus('Network Error: ' + err.type, 'error'));
+        } else {
+            setStatus('Error: No Room ID.', 'error');
+        }
+
+        // 2. Camera Setup
+        function initScanner() {
+            startBtn.style.display = 'none';
+            qrCodeEngine = new Html5Qrcode("reader");
             
-            html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-        } catch (e) {
-            document.getElementById('reader').innerHTML = '<div style="color:red; padding:20px;">Camera Init Error: ' + e.message + '</div>';
+            // First, ask for permissions and get all physical cameras
+            Html5Qrcode.getCameras().then(devices => {
+                if (devices && devices.length > 0) {
+                    availableCameras = devices;
+                    
+                    // Try to find the main back camera (often labeled "back 0" or similar)
+                    let backCamIndex = devices.findIndex(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('0'));
+                    currentCameraIndex = backCamIndex > -1 ? backCamIndex : 0;
+                    
+                    if (devices.length > 1) {
+                        switchBtn.style.display = 'block';
+                        camLabel.style.display = 'block';
+                    }
+                    
+                    startCurrentCamera();
+                } else {
+                    // Fallback if device enumeration is weird
+                    startFallbackCamera();
+                }
+            }).catch(err => {
+                // If getCameras fails (e.g. permission denied immediately), try fallback
+                startFallbackCamera();
+            });
+        }
+
+        function startCurrentCamera() {
+            if (!qrCodeEngine) return;
+            const cam = availableCameras[currentCameraIndex];
+            camLabel.textContent = "Lens: " + cam.label;
+            
+            qrCodeEngine.start(
+                cam.id, 
+                { fps: 10, qrbox: { width: 250, height: 250 } }, 
+                onScanSuccess, 
+                onScanFailure
+            ).catch(err => setStatus("Error starting lens: " + err, "error"));
+        }
+
+        function startFallbackCamera() {
+            qrCodeEngine.start(
+                { facingMode: "environment" }, 
+                { fps: 10, qrbox: { width: 250, height: 250 } }, 
+                onScanSuccess, 
+                onScanFailure
+            ).catch(err => {
+                setStatus("Camera blocked or missing.", "error");
+                startBtn.style.display = 'block';
+                startBtn.textContent = "Try Again";
+            });
+        }
+
+        function switchCamera() {
+            if (availableCameras.length < 2 || !qrCodeEngine) return;
+            
+            // Move to next camera in array
+            currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+            
+            // Stop current and start next
+            qrCodeEngine.stop().then(() => {
+                startCurrentCamera();
+            }).catch(err => {
+                setStatus("Error stopping camera: " + err, "error");
+            });
         }
 
         function onScanSuccess(decodedText, decodedResult) {
             if (isProcessing) return;
             
             if (!dataConnection || !dataConnection.open) {
-                alert("Cannot send: Not connected to Mac yet!");
+                setStatus("Wait for Mac to connect before scanning!", "error");
                 return;
             }
             
             isProcessing = true;
-            
-            // Send payload to Mac
             dataConnection.send({ type: 'scan', payload: decodedText });
             
-            // Show Success UI
             overlayEl.classList.add('show');
             if (navigator.vibrate) navigator.vibrate(200);
             
-            // Hide after 2 seconds
             setTimeout(() => {
                 overlayEl.classList.remove('show');
                 isProcessing = false;
             }, 2000);
         }
 
-        function onScanFailure(error) {
-            // This fires constantly while scanning, ignore it
-        }
+        function onScanFailure(error) {}
     </script>
 </body>
 </html>
