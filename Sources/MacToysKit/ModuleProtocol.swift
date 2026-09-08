@@ -16,6 +16,8 @@ public protocol UtilityModule: ObservableObject, Identifiable {
     var iconSymbol: String { get }
     
     var isEnabled: Bool { get set }
+    /// Used only until the user has explicitly chosen a state in Preferences.
+    var isEnabledByDefault: Bool { get }
     var requiredPermissions: [PermissionRequirement] { get }
     var shortcutName: KeyboardShortcuts.Name? { get }
     
@@ -23,4 +25,8 @@ public protocol UtilityModule: ObservableObject, Identifiable {
     func stop()
     func makeSettingsView() -> AnyView
     func triggerAction()
+}
+
+public extension UtilityModule {
+    var isEnabledByDefault: Bool { false }
 }

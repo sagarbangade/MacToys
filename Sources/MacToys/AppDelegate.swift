@@ -9,6 +9,7 @@ import ScreenRuler
 import ClipboardManager
 import QRScanner
 import MobileScanner
+import TypingAssist
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -94,6 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.register(ClipboardModule())
         ModuleRegistry.shared.register(QRScannerModule())
         ModuleRegistry.shared.register(MobileScannerModule())
+        ModuleRegistry.shared.register(TypingAssistModule.shared)
     }
     
     @objc func openPreferences() {

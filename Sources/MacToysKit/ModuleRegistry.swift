@@ -13,7 +13,10 @@ public final class ModuleRegistry: ObservableObject {
         modules.append(module)
         
         // Restore state from settings
-        let isEnabled = SettingsStore.shared.isModuleEnabled(id: module.id)
+        let isEnabled = SettingsStore.shared.isModuleEnabled(
+            id: module.id,
+            defaultValue: module.isEnabledByDefault
+        )
         module.isEnabled = isEnabled
         
         if isEnabled {

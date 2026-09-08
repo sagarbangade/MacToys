@@ -16,8 +16,8 @@ public final class SettingsStore {
         set { UserDefaults.standard.set(newValue, forKey: "showMenuBarIcon") }
     }
     
-    public func isModuleEnabled(id: String) -> Bool {
-        return UserDefaults.standard.object(forKey: "module_enabled_\(id)") as? Bool ?? false
+    public func isModuleEnabled(id: String, defaultValue: Bool = false) -> Bool {
+        UserDefaults.standard.object(forKey: "module_enabled_\(id)") as? Bool ?? defaultValue
     }
     
     public func setModuleEnabled(id: String, enabled: Bool) {
