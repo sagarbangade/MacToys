@@ -16,6 +16,7 @@ public final class InputMonitor: @unchecked Sendable {
     nonisolated(unsafe) private var selectedSuggestionIndex = 0
     nonisolated(unsafe) private var isCompletingPartialWord = false
     nonisolated(unsafe) private var compositionGeneration = 0
+    nonisolated(unsafe) private var activeCorrection: String?
 
     fileprivate let syntheticEventMarker: Int64 = 0x4D54_4153
 
@@ -81,6 +82,12 @@ public final class InputMonitor: @unchecked Sendable {
             return nil // swallow the Tab
         }
 
+        // Return accepts a spelling/grammar card and replaces the just-typed word.
+        if keycode == 36, let correction = activeCorrection {
+            applyCorrection(correction)
+            return nil
+        }
+
         // ── Left/right: choose candidate ──
         if (keycode == 123 || keycode == 124), !activeSuggestions.isEmpty {
             let delta = keycode == 123 ? -1 : 1
@@ -94,7 +101,7 @@ public final class InputMonitor: @unchecked Sendable {
         }
 
         // ── Escape (53): dismiss ──
-        if keycode == 53, !activeSuggestions.isEmpty {
+        if keycode == 53, !activeSuggestions.isEmpty || activeCorrection != nil {
             clearSuggestions()
         }
 
@@ -119,6 +126,10 @@ public final class InputMonitor: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
+        if activeCorrection != nil {
+            clearSuggestions()
+        }
+
         if char == " " || char == "\n" || char == "\r" {
             // Space commits an inline completion by collapsing the selected
             // suffix, then the original Space event creates the word boundary.
@@ -134,9 +145,17 @@ public final class InputMonitor: @unchecked Sendable {
             if !finishedWord.isEmpty {
                 print("[TypingAssist] Word completed: \"\(finishedWord)\" — looking up prediction...")
                 DispatchQueue.main.async {
-                    PredictionEngine.shared.recordWord(finishedWord)
-
-                    self.showSuggestions(after: finishedWord)
+                    if let correction = WritingQualityEngine.shared.correction(for: finishedWord) {
+                        self.activeCorrection = correction
+                        SuggestionUI.shared.showCorrection(
+                            original: finishedWord,
+                            replacement: correction,
+                            at: CaretTracker.shared.getSuggestionAnchor()
+                        )
+                    } else {
+                        PredictionEngine.shared.recordWord(finishedWord)
+                        self.showSuggestions(after: finishedWord)
+                    }
                 }
             }
         } else if char.isLetter || char.isNumber || char == "'" || char == "-" {
@@ -203,6 +222,7 @@ public final class InputMonitor: @unchecked Sendable {
         activeSuggestions = []
         selectedSuggestionIndex = 0
         isCompletingPartialWord = false
+        activeCorrection = nil
         DispatchQueue.main.async { SuggestionUI.shared.hide() }
     }
 
@@ -304,6 +324,22 @@ public final class InputMonitor: @unchecked Sendable {
             up.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func applyCorrection(_ correction: String) {
+        activeCorrection = nil
+        clearSuggestions()
+        // At a word boundary, Option-Shift-Left selects the preceding word and
+        // its trailing space in standard Cocoa, browser, and Electron editors.
+        postKey(123, flags: [.maskAlternate, .maskShift], count: 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            self.pasteText(correction + " ") {
+                Task { @MainActor in
+                    PredictionEngine.shared.recordWord(correction)
+                    self.showSuggestions(after: correction)
+                }
+            }
         }
     }
 }

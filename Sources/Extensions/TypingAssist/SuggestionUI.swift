@@ -5,6 +5,8 @@ import SwiftUI
 class SuggestionState: ObservableObject {
     @Published var suggestions: [String] = []
     @Published var selectedIndex: Int = 0
+    @Published var title: String?
+    @Published var original: String?
 }
 
 struct ShimmerText: View {
@@ -42,11 +44,17 @@ struct SuggestionView: View {
     @ObservedObject var state: SuggestionState
     
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.right.to.line.alt")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.secondary)
-            
+        VStack(alignment: .leading, spacing: 6) {
+            if let title = state.title {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                if let original = state.original {
+                    Text("Replace \(original)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
             HStack(spacing: 12) {
                 ForEach(Array(state.suggestions.enumerated()), id: \.offset) { index, text in
                     if index == state.selectedIndex {
@@ -124,6 +132,8 @@ public class SuggestionUI {
         // Update state
         self.state.suggestions = suggestions
         self.state.selectedIndex = selectedIndex
+        self.state.title = nil
+        self.state.original = nil
         
         guard let screen = NSScreen.screens.first else { return }
         let screenH = screen.frame.height
@@ -148,6 +158,24 @@ public class SuggestionUI {
         }
 
         panel.setFrame(NSRect(x: x, y: y, width: safeWidth, height: safeHeight), display: true)
+        panel.orderFrontRegardless()
+    }
+
+    public func showCorrection(original: String, replacement: String, at caretRect: CGRect?) {
+        guard let panel else { return }
+        state.suggestions = [replacement]
+        state.selectedIndex = 0
+        state.title = "Spelling & grammar"
+        state.original = original
+
+        let hostingView = panel.contentView as! NSHostingView<SuggestionView>
+        let fittingSize = hostingView.fittingSize
+        let anchorRect = caretRect ?? CGRect(origin: NSEvent.mouseLocation, size: CGSize(width: 1, height: 20))
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let y = caretRect == nil
+            ? anchorRect.origin.y - fittingSize.height
+            : screenHeight - anchorRect.origin.y - anchorRect.height - fittingSize.height + 14
+        panel.setFrame(NSRect(x: anchorRect.maxX, y: y, width: fittingSize.width, height: fittingSize.height), display: false)
         panel.orderFrontRegardless()
     }
 
