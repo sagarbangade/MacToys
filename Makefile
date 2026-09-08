@@ -15,6 +15,9 @@ all: build
 build:
 	@echo "Stopping old instances..."
 	@killall $(APP_NAME) 2>/dev/null || true
+	@echo "Resetting stale permissions..."
+	@tccutil reset Accessibility com.mactoys.app 2>/dev/null || true
+	@tccutil reset ScreenCapture com.mactoys.app 2>/dev/null || true
 	@echo "Building $(APP_NAME)..."
 	@swift build -c release
 	@rm -rf $(APP_BUNDLE)
