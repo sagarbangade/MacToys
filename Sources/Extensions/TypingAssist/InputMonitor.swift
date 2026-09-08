@@ -170,7 +170,9 @@ public final class InputMonitor: @unchecked Sendable {
 
             if !finishedWord.isEmpty {
                 print("[TypingAssist] Word completed: \"\(finishedWord)\" — looking up prediction...")
+                let generation = self.compositionGeneration
                 DispatchQueue.main.async {
+                    guard self.compositionGeneration == generation else { return }
                     if let correction = WritingQualityEngine.shared.correction(for: finishedWord) {
                         self.activeCorrection = correction
                         SuggestionUI.shared.showCorrection(
@@ -211,14 +213,18 @@ public final class InputMonitor: @unchecked Sendable {
             clearSuggestions()
             return
         }
+        let generation = self.compositionGeneration
         DispatchQueue.main.async {
+            guard self.compositionGeneration == generation else { return }
             let candidates = PredictionEngine.shared.suggestions(after: nil, partialWord: word)
             self.present(candidates, completesPartialWord: true)
         }
     }
 
     private func showSuggestions(after word: String) {
+        let generation = self.compositionGeneration
         DispatchQueue.main.async {
+            guard self.compositionGeneration == generation else { return }
             let candidates = PredictionEngine.shared.suggestions(after: word, partialWord: "")
             self.present(candidates, completesPartialWord: false)
         }
@@ -242,7 +248,9 @@ public final class InputMonitor: @unchecked Sendable {
             DispatchQueue.main.async { SuggestionUI.shared.hide() }
             return
         }
+        let generation = self.compositionGeneration
         DispatchQueue.main.async {
+            guard self.compositionGeneration == generation else { return }
             SuggestionUI.shared.show(
                 suggestions: self.activeSuggestions,
                 selectedIndex: self.selectedSuggestionIndex,
