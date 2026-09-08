@@ -61,6 +61,11 @@ let package = Package(
             dependencies: ["MacToysKit"],
             path: "Sources/Extensions/TypingAssist"
         ),
+        .target(
+            name: "SpellChecker",
+            dependencies: ["MacToysKit"],
+            path: "Sources/Extensions/SpellChecker"
+        ),
 
         // ─── App Shell ──────────────────────────────────────────
         .executableTarget(
@@ -74,7 +79,8 @@ let package = Package(
                 "ClipboardManager",
                 "QRScanner",
                 "MobileScanner",
-                "TypingAssist"
+                "TypingAssist",
+                "SpellChecker"
             ]
         ),
         .testTarget(

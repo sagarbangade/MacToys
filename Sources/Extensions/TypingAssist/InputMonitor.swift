@@ -16,7 +16,6 @@ public final class InputMonitor: @unchecked Sendable {
     nonisolated(unsafe) private var selectedSuggestionIndex = 0
     nonisolated(unsafe) private var isCompletingPartialWord = false
     nonisolated(unsafe) private var compositionGeneration = 0
-    nonisolated(unsafe) private var activeCorrection: String?
     nonisolated(unsafe) private var isOutOfSync = false
 
     fileprivate let syntheticEventMarker: Int64 = 0x4D54_4153
@@ -31,7 +30,7 @@ public final class InputMonitor: @unchecked Sendable {
             return
         }
 
-        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
+        let eventMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
 
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -69,14 +68,6 @@ public final class InputMonitor: @unchecked Sendable {
 
     // MARK: - Event Handling
 
-    fileprivate func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        currentWord = ""
-        isOutOfSync = true
-        activeCorrection = nil
-        clearSuggestions()
-        return Unmanaged.passUnretained(event)
-    }
-
     fileprivate func handleKeyDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
 
@@ -84,12 +75,6 @@ public final class InputMonitor: @unchecked Sendable {
         if keycode == 48, let suggestion = selectedSuggestion {
             accept(suggestion)
             return nil // swallow the Tab
-        }
-
-        // Return accepts a spelling/grammar card and replaces the just-typed word.
-        if keycode == 36, let correction = activeCorrection {
-            applyCorrection(correction)
-            return nil
         }
 
         // ── Left/right: choose candidate ──
@@ -109,7 +94,7 @@ public final class InputMonitor: @unchecked Sendable {
         }
 
         // ── Escape (53): dismiss ──
-        if keycode == 53, !activeSuggestions.isEmpty || activeCorrection != nil {
+        if keycode == 53, !activeSuggestions.isEmpty {
             clearSuggestions()
             return nil
         }
@@ -150,10 +135,6 @@ public final class InputMonitor: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
-        if activeCorrection != nil {
-            clearSuggestions()
-        }
-
         if char == " " || char == "\n" || char == "\r" {
             // Space commits an inline completion by collapsing the selected
             // suffix, then the original Space event creates the word boundary.
@@ -173,17 +154,8 @@ public final class InputMonitor: @unchecked Sendable {
                 let generation = self.compositionGeneration
                 DispatchQueue.main.async {
                     guard self.compositionGeneration == generation else { return }
-                    if let correction = WritingQualityEngine.shared.correction(for: finishedWord) {
-                        self.activeCorrection = correction
-                        SuggestionUI.shared.showCorrection(
-                            original: finishedWord,
-                            replacement: correction,
-                            at: CaretTracker.shared.getSuggestionAnchor()
-                        )
-                    } else {
-                        PredictionEngine.shared.recordWord(finishedWord)
-                        self.showSuggestions(after: finishedWord)
-                    }
+                    PredictionEngine.shared.recordWord(finishedWord)
+                    self.showSuggestions(after: finishedWord)
                 }
             }
         } else if char.isLetter || char.isNumber || char == "'" || char == "-" {
@@ -264,7 +236,6 @@ public final class InputMonitor: @unchecked Sendable {
         activeSuggestions = []
         selectedSuggestionIndex = 0
         isCompletingPartialWord = false
-        activeCorrection = nil
         DispatchQueue.main.async { SuggestionUI.shared.hide() }
     }
 
@@ -368,22 +339,6 @@ public final class InputMonitor: @unchecked Sendable {
             up.post(tap: .cghidEventTap)
         }
     }
-
-    private func applyCorrection(_ correction: String) {
-        activeCorrection = nil
-        clearSuggestions()
-        // At a word boundary, Option-Shift-Left selects the preceding word and
-        // its trailing space in standard Cocoa, browser, and Electron editors.
-        postKey(123, flags: [.maskAlternate, .maskShift], count: 1)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-            self.pasteText(correction + " ") {
-                Task { @MainActor in
-                    PredictionEngine.shared.recordWord(correction)
-                    self.showSuggestions(after: correction)
-                }
-            }
-        }
-    }
 }
 
 // MARK: - C Function Pointer (no captures allowed)
@@ -411,10 +366,6 @@ private func eventTapCallback(
             CGEvent.tapEnable(tap: port, enable: true)
         }
         return Unmanaged.passUnretained(event)
-    }
-
-    if type == .leftMouseDown {
-        return monitor.handleMouseDown(event: event)
     }
 
     guard type == .keyDown else {

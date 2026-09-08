@@ -10,6 +10,7 @@ import ClipboardManager
 import QRScanner
 import MobileScanner
 import TypingAssist
+import SpellChecker
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -96,6 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.register(QRScannerModule())
         ModuleRegistry.shared.register(MobileScannerModule())
         ModuleRegistry.shared.register(TypingAssistModule.shared)
+        ModuleRegistry.shared.register(SpellCheckerModule.shared)
     }
     
     @objc func openPreferences() {
