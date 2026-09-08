@@ -119,8 +119,7 @@ public class SuggestionUI {
         self.state.suggestions = suggestions
         self.state.selectedIndex = selectedIndex
         
-        guard let screen = NSScreen.screens.first else { return }
-        let screenH = screen.frame.height
+        let desktopTop = NSScreen.screens.map(\.frame.maxY).max() ?? 0
 
         let hostingView = panel.contentView as! NSHostingView<SuggestionView>
         hostingView.layout() // Force layout synchronously
@@ -136,7 +135,7 @@ public class SuggestionUI {
         let x = anchorRect.origin.x + anchorRect.width
         let y: CGFloat
         if caretRect != nil {
-            y = screenH - anchorRect.origin.y - anchorRect.height - safeHeight + 14
+            y = desktopTop - anchorRect.origin.y - anchorRect.height - safeHeight + 14
         } else {
             y = anchorRect.origin.y - safeHeight
         }

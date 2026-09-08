@@ -23,6 +23,9 @@ final class SpellCheckMonitor {
     private var axObserver: AXObserver?
     private var trackedElement: AXUIElement?
     private var trackedPid: pid_t = 0
+    private var focusTimer: Timer?
+    private let spellDocumentTag = NSSpellChecker.uniqueSpellDocumentTag()
+    private let maximumCheckedCharacters = 4_000
 
     /// Currently detected misspelled words
     private(set) var misspelledWords: [MisspelledWord] = []
@@ -65,6 +68,16 @@ final class SpellCheckMonitor {
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             attachToApp(pid: frontApp.processIdentifier)
         }
+
+        // AX value-change notifications belong to an individual element. Poll
+        // focus cheaply so editors that move focus within the same app are
+        // reattached instead of silently retaining the old field.
+        focusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self, let app = NSWorkspace.shared.frontmostApplication else { return }
+            Task { @MainActor in
+                self.attachToApp(pid: app.processIdentifier)
+            }
+        }
     }
 
     func stop() {
@@ -81,6 +94,8 @@ final class SpellCheckMonitor {
             NSEvent.removeMonitor(monitor)
             mouseMonitor = nil
         }
+        focusTimer?.invalidate()
+        focusTimer = nil
 
         detachObserver()
         misspelledWords = []
@@ -90,19 +105,11 @@ final class SpellCheckMonitor {
     // MARK: - App Tracking
 
     private func attachToApp(pid: pid_t) {
-        // Don't re-attach to the same app
-        guard pid != trackedPid else {
-            // Still refresh text on app re-focus
-            scheduleSpellCheck()
-            return
-        }
-
-        detachObserver()
-        trackedPid = pid
-
         // Skip our own app
         if let bundleId = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
-           bundleId == "com.mactoys.app" {
+           bundleId == "com.mactoys.app" || isTerminal(bundleId) {
+            detachObserver()
+            SpellCheckOverlay.shared.clearAll()
             return
         }
 
@@ -117,6 +124,14 @@ final class SpellCheckMonitor {
         }
 
         let element = focused as! AXUIElement
+
+        if pid == trackedPid, let trackedElement, CFEqual(trackedElement, element) {
+            scheduleSpellCheck()
+            return
+        }
+
+        detachObserver()
+        trackedPid = pid
 
         // Check if the element has a text value (i.e., it's a text field/editor)
         var roleRef: CFTypeRef?
@@ -184,7 +199,7 @@ final class SpellCheckMonitor {
     private func performSpellCheck() {
         guard let element = trackedElement else { return }
 
-        // Read the full text
+        // Read text around the caret, not an entire document or terminal buffer.
         var valueRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
               let text = valueRef as? String, !text.isEmpty else {
@@ -193,27 +208,33 @@ final class SpellCheckMonitor {
             return
         }
 
-        print("[SpellChecker] Checking text (\(text.count) chars)")
+        let window = checkedWindow(in: text, element: element)
+        let checkedText = window.text
+        guard !checkedText.isEmpty else { return }
 
-        // Run NSSpellChecker over the full text
+        // Run NSSpellChecker over a bounded text window.
         let checker = NSSpellChecker.shared
         var offset = 0
         var found: [MisspelledWord] = []
 
-        while offset < text.count {
+        let nsText = checkedText as NSString
+        while offset < nsText.length {
             let misspelledRange = checker.checkSpelling(
-                of: text,
+                of: checkedText,
                 startingAt: offset,
-                language: "en",
+                language: "en_US",
                 wrap: false,
-                inSpellDocumentWithTag: 0,
+                inSpellDocumentWithTag: spellDocumentTag,
                 wordCount: nil
             )
 
             guard misspelledRange.location != NSNotFound else { break }
 
-            let nsText = text as NSString
             let word = nsText.substring(with: misspelledRange)
+            let elementRange = NSRange(
+                location: window.baseOffset + misspelledRange.location,
+                length: misspelledRange.length
+            )
 
             // Skip ignored words
             if ignoredWords.contains(word.lowercased()) {
@@ -230,16 +251,16 @@ final class SpellCheckMonitor {
             // Get suggestions
             let suggestions = checker.guesses(
                 forWordRange: misspelledRange,
-                in: text,
-                language: "en",
-                inSpellDocumentWithTag: 0
+                in: checkedText,
+                language: "en_US",
+                inSpellDocumentWithTag: spellDocumentTag
             ) ?? []
 
             // Get screen bounds for this word range using AX API
-            if let bounds = boundsForRange(element: element, range: misspelledRange) {
+            if let bounds = boundsForRange(element: element, range: elementRange) {
                 found.append(MisspelledWord(
                     word: word,
-                    range: misspelledRange,
+                    range: elementRange,
                     screenBounds: bounds,
                     suggestions: Array(suggestions.prefix(5))
                 ))
@@ -284,6 +305,38 @@ final class SpellCheckMonitor {
             && valueRef is String
     }
 
+    private func checkedWindow(in text: String, element: AXUIElement) -> (text: String, baseOffset: Int) {
+        let nsText = text as NSString
+        guard nsText.length > maximumCheckedCharacters else { return (text, 0) }
+
+        var selectedRangeRef: CFTypeRef?
+        var caretOffset = nsText.length
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success,
+           let selectedRangeRef,
+           CFGetTypeID(selectedRangeRef) == AXValueGetTypeID() {
+            var selectedRange = CFRange()
+            if AXValueGetValue(selectedRangeRef as! AXValue, .cfRange, &selectedRange) {
+                caretOffset = min(max(0, selectedRange.location), nsText.length)
+            }
+        }
+        var start = max(0, caretOffset - maximumCheckedCharacters / 2)
+        var end = min(nsText.length, start + maximumCheckedCharacters)
+        start = max(0, end - maximumCheckedCharacters)
+
+        // Avoid checking a slice that starts halfway through a word.
+        while start > 0, CharacterSet.alphanumerics.contains(UnicodeScalar(nsText.character(at: start))!) {
+            start -= 1
+        }
+        while end < nsText.length, CharacterSet.alphanumerics.contains(UnicodeScalar(nsText.character(at: end - 1))!) {
+            end += 1
+        }
+        return (nsText.substring(with: NSRange(location: start, length: end - start)), start)
+    }
+
+    private func isTerminal(_ bundleIdentifier: String) -> Bool {
+        ["com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty", "net.kovidgoyal.kitty"].contains(bundleIdentifier)
+    }
+
     // MARK: - Mouse Hover
 
     private func handleMouseMove(at screenPoint: NSPoint) {
@@ -294,12 +347,12 @@ final class SpellCheckMonitor {
 
         // Convert from AppKit coordinates (bottom-left) to screen coordinates (top-left)
         // AX API returns top-left origin coordinates
-        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let desktopTop = NSScreen.screens.map(\.frame.maxY).max() ?? 0
 
         for word in misspelledWords {
             // AX bounds are in screen coords (top-left origin)
             // NSEvent.mouseLocation is in AppKit coords (bottom-left origin)
-            let flippedY = screenHeight - word.screenBounds.origin.y - word.screenBounds.height
+            let flippedY = desktopTop - word.screenBounds.origin.y - word.screenBounds.height
             let appKitRect = CGRect(
                 x: word.screenBounds.origin.x,
                 y: flippedY,

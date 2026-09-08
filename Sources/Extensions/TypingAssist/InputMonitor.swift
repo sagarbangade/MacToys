@@ -17,6 +17,8 @@ public final class InputMonitor: @unchecked Sendable {
     nonisolated(unsafe) private var isCompletingPartialWord = false
     nonisolated(unsafe) private var compositionGeneration = 0
     nonisolated(unsafe) private var isOutOfSync = false
+    nonisolated(unsafe) private var isInlineCompositionActive = false
+    private var suggestionWorkItem: DispatchWorkItem?
 
     fileprivate let syntheticEventMarker: Int64 = 0x4D54_4153
 
@@ -30,7 +32,7 @@ public final class InputMonitor: @unchecked Sendable {
             return
         }
 
-        let eventMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
+        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
 
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -63,10 +65,19 @@ public final class InputMonitor: @unchecked Sendable {
             self.runLoopSource = nil
         }
         clearSuggestions()
+        suggestionWorkItem?.cancel()
+        suggestionWorkItem = nil
         print("[TypingAssist] Event tap stopped")
     }
 
     // MARK: - Event Handling
+
+    fileprivate func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        currentWord = ""
+        isOutOfSync = true
+        clearSuggestions()
+        return Unmanaged.passUnretained(event)
+    }
 
     fileprivate func handleKeyDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
@@ -138,7 +149,7 @@ public final class InputMonitor: @unchecked Sendable {
         if char == " " || char == "\n" || char == "\r" {
             // Space commits an inline completion by collapsing the selected
             // suffix, then the original Space event creates the word boundary.
-            if isCompletingPartialWord, let suggestion = selectedSuggestion {
+            if isInlineCompositionActive, let suggestion = selectedSuggestion {
                 currentWord = suggestion
                 clearSuggestions()
                 collapseSelectionToEnd()
@@ -185,12 +196,19 @@ public final class InputMonitor: @unchecked Sendable {
             clearSuggestions()
             return
         }
-        let generation = self.compositionGeneration
-        DispatchQueue.main.async {
-            guard self.compositionGeneration == generation else { return }
-            let candidates = PredictionEngine.shared.suggestions(after: nil, partialWord: word)
-            self.present(candidates, completesPartialWord: true)
+        suggestionWorkItem?.cancel()
+        let generation = compositionGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.compositionGeneration == generation else { return }
+                let candidates = PredictionEngine.shared.suggestions(after: nil, partialWord: word)
+                self.present(candidates, completesPartialWord: true)
+            }
         }
+        suggestionWorkItem = workItem
+        // NSSpellChecker completion lookup is synchronous. Coalescing rapid
+        // typing prevents it from blocking the event-tap run loop.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
     }
 
     private func showSuggestions(after word: String) {
@@ -208,7 +226,7 @@ public final class InputMonitor: @unchecked Sendable {
             : candidates
         selectedSuggestionIndex = 0
         isCompletingPartialWord = completesPartialWord
-        if completesPartialWord {
+        if completesPartialWord, !isTerminalApplication {
             composeSelectedPartialWord()
         } else {
             updateSuggestionUI()
@@ -236,6 +254,7 @@ public final class InputMonitor: @unchecked Sendable {
         activeSuggestions = []
         selectedSuggestionIndex = 0
         isCompletingPartialWord = false
+        isInlineCompositionActive = false
         DispatchQueue.main.async { SuggestionUI.shared.hide() }
     }
 
@@ -243,10 +262,11 @@ public final class InputMonitor: @unchecked Sendable {
         let completesPartialWord = isCompletingPartialWord
         let text: String
         if completesPartialWord {
-            // The selected suffix is already in the editor. Tab only commits it.
-            text = ""
+            // Terminal emulators do not provide reliable text selection. Keep
+            // their suggestions passive until explicitly accepted with Tab.
+            text = isInlineCompositionActive ? "" : String(suggestion.dropFirst(currentWord.count))
             currentWord = suggestion
-            collapseSelectionToEnd()
+            if isInlineCompositionActive { collapseSelectionToEnd() }
         } else {
             text = suggestion + " "
             currentWord = ""
@@ -288,6 +308,7 @@ public final class InputMonitor: @unchecked Sendable {
             self.pasteText(suffix) {
                 guard self.compositionGeneration == generation else { return }
                 self.selectLastCharacters(suffix.count)
+                self.isInlineCompositionActive = true
                 self.updateSuggestionUI()
             }
         }
@@ -339,6 +360,15 @@ public final class InputMonitor: @unchecked Sendable {
             up.post(tap: .cghidEventTap)
         }
     }
+
+    private var isTerminalApplication: Bool {
+        let terminalBundleIdentifiers: Set<String> = [
+            "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
+            "com.mitchellh.ghostty", "net.kovidgoyal.kitty"
+        ]
+        guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+        return terminalBundleIdentifiers.contains(bundleIdentifier)
+    }
 }
 
 // MARK: - C Function Pointer (no captures allowed)
@@ -366,6 +396,10 @@ private func eventTapCallback(
             CGEvent.tapEnable(tap: port, enable: true)
         }
         return Unmanaged.passUnretained(event)
+    }
+
+    if type == .leftMouseDown {
+        return monitor.handleMouseDown(event: event)
     }
 
     guard type == .keyDown else {

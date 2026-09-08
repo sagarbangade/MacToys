@@ -26,12 +26,12 @@ final class SpellCheckOverlay {
             return
         }
 
-        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let desktopTop = NSScreen.screens.map(\.frame.maxY).max() ?? 0
 
         // Convert AX frame (top-left origin) to AppKit frame (bottom-left origin)
         let appKitFrame = CGRect(
             x: elementFrame.origin.x,
-            y: screenHeight - elementFrame.origin.y - elementFrame.height,
+            y: desktopTop - elementFrame.origin.y - elementFrame.height,
             width: elementFrame.width,
             height: elementFrame.height
         )
