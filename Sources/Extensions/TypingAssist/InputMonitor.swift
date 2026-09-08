@@ -31,7 +31,7 @@ public final class InputMonitor: @unchecked Sendable {
             return
         }
 
-        let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
+        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
 
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
