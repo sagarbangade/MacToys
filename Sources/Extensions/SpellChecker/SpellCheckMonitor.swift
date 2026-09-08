@@ -25,7 +25,9 @@ final class SpellCheckMonitor {
     private var trackedPid: pid_t = 0
     private var focusTimer: Timer?
     private let spellDocumentTag = NSSpellChecker.uniqueSpellDocumentTag()
-    private let maximumCheckedCharacters = 4_000
+    private let maximumCheckedCharacters = 1_024
+    private let maximumIssuesPerPass = 8
+    private var requestGeneration = 0
 
     /// Currently detected misspelled words
     private(set) var misspelledWords: [MisspelledWord] = []
@@ -126,7 +128,6 @@ final class SpellCheckMonitor {
         let element = focused as! AXUIElement
 
         if pid == trackedPid, let trackedElement, CFEqual(trackedElement, element) {
-            scheduleSpellCheck()
             return
         }
 
@@ -188,7 +189,7 @@ final class SpellCheckMonitor {
 
     private func scheduleSpellCheck() {
         debounceTimer?.invalidate()
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
                 self.performSpellCheck()
@@ -212,67 +213,59 @@ final class SpellCheckMonitor {
         let checkedText = window.text
         guard !checkedText.isEmpty else { return }
 
-        // Run NSSpellChecker over a bounded text window.
+        // Spell checking is a background request. The completion arrives on an
+        // arbitrary queue, so it must be discarded if the user continued typing
+        // or changed focus before it completes.
         let checker = NSSpellChecker.shared
-        var offset = 0
+        let nsText = checkedText as NSString
+        requestGeneration += 1
+        let generation = requestGeneration
+        checker.requestChecking(
+            of: checkedText,
+            range: NSRange(location: 0, length: nsText.length),
+            types: NSTextCheckingTypes(NSTextCheckingResult.CheckingType.spelling.rawValue),
+            options: nil,
+            inSpellDocumentWithTag: spellDocumentTag
+        ) { @Sendable [weak self] _, results, _, _ in
+            let spellingRanges = results.filter { $0.resultType == .spelling }.map { $0.range }
+            let safeBaseOffset = window.baseOffset
+            
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.requestGeneration == generation,
+                      let currentElement = self.trackedElement else { return }
+                self.apply(ranges: spellingRanges, text: checkedText, baseOffset: safeBaseOffset, element: currentElement)
+            }
+        }
+    }
+
+    private func apply(ranges: [NSRange], text: String, baseOffset: Int, element: AXUIElement) {
+        let checker = NSSpellChecker.shared
+        let nsText = text as NSString
         var found: [MisspelledWord] = []
 
-        let nsText = checkedText as NSString
-        while offset < nsText.length {
-            let misspelledRange = checker.checkSpelling(
-                of: checkedText,
-                startingAt: offset,
-                language: "en_US",
-                wrap: false,
-                inSpellDocumentWithTag: spellDocumentTag,
-                wordCount: nil
-            )
+        for range in ranges {
+            guard found.count < maximumIssuesPerPass else { break }
+            guard range.location != NSNotFound else { continue }
+            let word = nsText.substring(with: range)
+            guard word.count > 1, !ignoredWords.contains(word.lowercased()) else { continue }
+            let elementRange = NSRange(location: baseOffset + range.location, length: range.length)
+            guard let bounds = boundsForRange(element: element, range: elementRange) else { continue }
 
-            guard misspelledRange.location != NSNotFound else { break }
-
-            let word = nsText.substring(with: misspelledRange)
-            let elementRange = NSRange(
-                location: window.baseOffset + misspelledRange.location,
-                length: misspelledRange.length
-            )
-
-            // Skip ignored words
-            if ignoredWords.contains(word.lowercased()) {
-                offset = misspelledRange.location + misspelledRange.length
-                continue
-            }
-
-            // Skip very short words (1-2 chars) to avoid noise
-            if word.count <= 1 {
-                offset = misspelledRange.location + misspelledRange.length
-                continue
-            }
-
-            // Get suggestions
             let suggestions = checker.guesses(
-                forWordRange: misspelledRange,
-                in: checkedText,
+                forWordRange: range,
+                in: text,
                 language: "en_US",
                 inSpellDocumentWithTag: spellDocumentTag
             ) ?? []
-
-            // Get screen bounds for this word range using AX API
-            if let bounds = boundsForRange(element: element, range: elementRange) {
-                found.append(MisspelledWord(
-                    word: word,
-                    range: elementRange,
-                    screenBounds: bounds,
-                    suggestions: Array(suggestions.prefix(5))
-                ))
-            }
-
-            offset = misspelledRange.location + misspelledRange.length
+            found.append(MisspelledWord(
+                word: word,
+                range: elementRange,
+                screenBounds: bounds,
+                suggestions: Array(suggestions.prefix(5))
+            ))
         }
-
         misspelledWords = found
-        print("[SpellChecker] Found \(found.count) misspelled words")
-
-        // Update overlay
         SpellCheckOverlay.shared.update(words: found, element: element)
     }
 

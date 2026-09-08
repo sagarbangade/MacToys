@@ -17,7 +17,6 @@ public final class InputMonitor: @unchecked Sendable {
     nonisolated(unsafe) private var isCompletingPartialWord = false
     nonisolated(unsafe) private var compositionGeneration = 0
     nonisolated(unsafe) private var isOutOfSync = false
-    nonisolated(unsafe) private var isInlineCompositionActive = false
     private var suggestionWorkItem: DispatchWorkItem?
 
     fileprivate let syntheticEventMarker: Int64 = 0x4D54_4153
@@ -112,12 +111,6 @@ public final class InputMonitor: @unchecked Sendable {
 
         // ── Backspace (51) ──
         if keycode == 51 {
-            // The generated suffix is selected in the focused editor. Let the
-            // app delete that selection, leaving the user's typed prefix intact.
-            if isCompletingPartialWord, selectedSuggestion != nil {
-                clearSuggestions()
-                return Unmanaged.passUnretained(event)
-            }
             if currentWord.isEmpty {
                 isOutOfSync = true
                 clearSuggestions()
@@ -147,14 +140,6 @@ public final class InputMonitor: @unchecked Sendable {
         }
 
         if char == " " || char == "\n" || char == "\r" {
-            // Space commits an inline completion by collapsing the selected
-            // suffix, then the original Space event creates the word boundary.
-            if isInlineCompositionActive, let suggestion = selectedSuggestion {
-                currentWord = suggestion
-                clearSuggestions()
-                collapseSelectionToEnd()
-            }
-
             // ── Word boundary: predict next word ──
             let finishedWord = currentWord
             currentWord = ""
@@ -200,7 +185,9 @@ public final class InputMonitor: @unchecked Sendable {
         let generation = compositionGeneration
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, self.compositionGeneration == generation else { return }
+                guard let self,
+                      self.compositionGeneration == generation,
+                      self.currentWord == word else { return }
                 let candidates = PredictionEngine.shared.suggestions(after: nil, partialWord: word)
                 self.present(candidates, completesPartialWord: true)
             }
@@ -222,15 +209,14 @@ public final class InputMonitor: @unchecked Sendable {
 
     private func present(_ candidates: [String], completesPartialWord: Bool) {
         activeSuggestions = completesPartialWord
-            ? candidates.filter { $0.caseInsensitiveCompare(currentWord) != .orderedSame }
+            ? candidates.filter { candidate in
+                candidate.caseInsensitiveCompare(currentWord) != .orderedSame
+                    && candidate.lowercased().hasPrefix(currentWord.lowercased())
+            }
             : candidates
         selectedSuggestionIndex = 0
         isCompletingPartialWord = completesPartialWord
-        if completesPartialWord, !isTerminalApplication {
-            composeSelectedPartialWord()
-        } else {
-            updateSuggestionUI()
-        }
+        updateSuggestionUI()
     }
 
     private func updateSuggestionUI() {
@@ -254,7 +240,6 @@ public final class InputMonitor: @unchecked Sendable {
         activeSuggestions = []
         selectedSuggestionIndex = 0
         isCompletingPartialWord = false
-        isInlineCompositionActive = false
         DispatchQueue.main.async { SuggestionUI.shared.hide() }
     }
 
@@ -262,11 +247,12 @@ public final class InputMonitor: @unchecked Sendable {
         let completesPartialWord = isCompletingPartialWord
         let text: String
         if completesPartialWord {
-            // Terminal emulators do not provide reliable text selection. Keep
-            // their suggestions passive until explicitly accepted with Tab.
-            text = isInlineCompositionActive ? "" : String(suggestion.dropFirst(currentWord.count))
+            guard suggestion.lowercased().hasPrefix(currentWord.lowercased()) else {
+                clearSuggestions()
+                return
+            }
+            text = String(suggestion.dropFirst(currentWord.count))
             currentWord = suggestion
-            if isInlineCompositionActive { collapseSelectionToEnd() }
         } else {
             text = suggestion + " "
             currentWord = ""
@@ -290,35 +276,6 @@ public final class InputMonitor: @unchecked Sendable {
         }
     }
 
-    /// Writes only the missing suffix and selects it, producing native inline
-    /// composition in the target field instead of an approximation in an overlay.
-    private func composeSelectedPartialWord() {
-        guard let suggestion = selectedSuggestion,
-              suggestion.hasPrefix(currentWord),
-              suggestion != currentWord else {
-            updateSuggestionUI()
-            return
-        }
-        let suffix = String(suggestion.dropFirst(currentWord.count))
-        let generation = compositionGeneration + 1
-        compositionGeneration = generation
-
-        DispatchQueue.main.async {
-            guard self.compositionGeneration == generation else { return }
-            self.pasteText(suffix) {
-                guard self.compositionGeneration == generation else { return }
-                self.selectLastCharacters(suffix.count)
-                self.isInlineCompositionActive = true
-                self.updateSuggestionUI()
-            }
-        }
-    }
-
-    private func pasteText(_ text: String, completion: @escaping @Sendable () -> Void) {
-        self.typeText(text)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: completion)
-    }
-
     private func typeText(_ text: String) {
         let source = CGEventSource(stateID: .hidSystemState)
         let utf16Chars = Array(text.utf16)
@@ -339,36 +296,6 @@ public final class InputMonitor: @unchecked Sendable {
         }
     }
 
-    private func selectLastCharacters(_ count: Int) {
-        postKey(123, flags: .maskShift, count: count)
-    }
-
-    private func collapseSelectionToEnd() {
-        postKey(124, flags: [], count: 1)
-    }
-
-    private func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, count: Int) {
-        let source = CGEventSource(stateID: .hidSystemState)
-        for _ in 0..<count {
-            guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-                  let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { continue }
-            down.flags = flags
-            up.flags = flags
-            down.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-            up.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-            down.post(tap: .cghidEventTap)
-            up.post(tap: .cghidEventTap)
-        }
-    }
-
-    private var isTerminalApplication: Bool {
-        let terminalBundleIdentifiers: Set<String> = [
-            "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
-            "com.mitchellh.ghostty", "net.kovidgoyal.kitty"
-        ]
-        guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
-        return terminalBundleIdentifiers.contains(bundleIdentifier)
-    }
 }
 
 // MARK: - C Function Pointer (no captures allowed)

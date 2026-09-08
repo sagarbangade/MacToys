@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 @MainActor
@@ -10,6 +9,8 @@ public final class PredictionEngine {
     private var previousWord: String?
     private var wordBeforePrevious: String?
     private var savePending = false
+    private let maximumContexts = 5_000
+    private let maximumCandidatesPerContext = 16
 
     // This compact bootstrap model makes useful suggestions before the user has
     // typed enough for the personal model to take over.
@@ -44,6 +45,25 @@ public final class PredictionEngine {
         "sorry": ["for", "about", "to"], "no": ["problem", "worries"]
     ]
 
+    // A deliberately bounded local lexicon keeps prefix completion off the
+    // spell server's synchronous path. It is fast enough to run on every idle
+    // keystroke and covers the common words not present in a user's history.
+    private let commonWords = [
+        "about", "above", "accept", "across", "actually", "after", "again", "against", "almost", "already",
+        "also", "always", "another", "anything", "around", "because", "before", "being", "between", "better",
+        "both", "bring", "build", "business", "called", "change", "check", "come", "common", "complete",
+        "could", "create", "current", "different", "does", "doing", "done", "each", "early", "enough",
+        "every", "everything", "example", "first", "follow", "from", "general", "getting", "give", "going",
+        "great", "help", "hello", "here", "however", "important", "include", "into", "issue", "just",
+        "keep", "know", "later", "like", "little", "look", "make", "many", "might", "more", "most",
+        "much", "need", "never", "next", "nothing", "only", "other", "people", "place", "please",
+        "possible", "problem", "really", "right", "should", "simple", "some", "someone", "something", "still",
+        "such", "system", "take", "tell", "than", "thank", "their", "there", "these", "thing", "think",
+        "this", "those", "through", "today", "together", "try", "under", "use", "user", "very", "want",
+        "well", "were", "what", "when", "where", "which", "while", "will", "with", "without", "work",
+        "would", "write", "year", "yes", "your"
+    ]
+
     private init() { loadCache() }
 
     public func recordWord(_ word: String) {
@@ -51,12 +71,16 @@ public final class PredictionEngine {
         guard !cleaned.isEmpty else { return }
         if let previousWord {
             bigrams[previousWord, default: [:]][cleaned, default: 0] += 1
+            trimCandidates(for: previousWord, in: &bigrams)
             if let wordBeforePrevious {
                 let context = "\(wordBeforePrevious)\u{1F}\(previousWord)"
                 trigrams[context, default: [:]][cleaned, default: 0] += 1
+                trimCandidates(for: context, in: &trigrams)
             }
             saveCacheDebounced()
         }
+        if bigrams.count > maximumContexts { bigrams.removeValue(forKey: previousWord ?? cleaned) }
+        if trigrams.count > maximumContexts { trigrams.removeValue(forKey: "\(wordBeforePrevious ?? cleaned)\u{1F}\(previousWord ?? cleaned)") }
         wordBeforePrevious = previousWord
         previousWord = cleaned
     }
@@ -91,17 +115,10 @@ public final class PredictionEngine {
         }
         if let context { commonFollowers[context, default: []].forEach(append) }
 
-        // macOS supplies a broad, language-aware completion vocabulary without
-        // shipping a huge static word list or sending typed text off-device.
         if !partial.isEmpty {
-            let spellChecker = NSSpellChecker.shared
-            let range = NSRange(location: 0, length: (partial as NSString).length)
-            spellChecker.completions(
-                forPartialWordRange: range,
-                in: partial,
-                language: "en_US",
-                inSpellDocumentWithTag: 0
-            )?.forEach(append)
+            commonFollowers.keys.forEach(append)
+            commonFollowers.values.flatMap { $0 }.forEach(append)
+            commonWords.forEach(append)
         }
 
         return Array(ranked.prefix(5))
@@ -121,16 +138,29 @@ public final class PredictionEngine {
     }
 
     private func saveCache() {
-        UserDefaults.standard.set(bigrams, forKey: "TypingAssist_Bigrams")
-        UserDefaults.standard.set(trigrams, forKey: "TypingAssist_Trigrams")
+        let bigramSnapshot = bigrams
+        let trigramSnapshot = trigrams
+        DispatchQueue.global(qos: .utility).async {
+            UserDefaults.standard.set(bigramSnapshot, forKey: "TypingAssist_Bigrams")
+            UserDefaults.standard.set(trigramSnapshot, forKey: "TypingAssist_Trigrams")
+        }
     }
 
     private func loadCache() {
         if let saved = UserDefaults.standard.dictionary(forKey: "TypingAssist_Bigrams") as? [String: [String: Int]] {
-            bigrams = saved
+            bigrams = Dictionary(uniqueKeysWithValues: saved.prefix(maximumContexts).map { ($0.key, $0.value) })
         }
         if let saved = UserDefaults.standard.dictionary(forKey: "TypingAssist_Trigrams") as? [String: [String: Int]] {
-            trigrams = saved
+            trigrams = Dictionary(uniqueKeysWithValues: saved.prefix(maximumContexts).map { ($0.key, $0.value) })
         }
+    }
+
+    private func trimCandidates(for context: String, in model: inout [String: [String: Int]]) {
+        guard let candidates = model[context], candidates.count > maximumCandidatesPerContext else { return }
+        model[context] = Dictionary(uniqueKeysWithValues:
+            candidates.sorted { lhs, rhs in lhs.value > rhs.value }
+                .prefix(maximumCandidatesPerContext)
+                .map { ($0.key, $0.value) }
+        )
     }
 }
