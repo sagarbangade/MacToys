@@ -9,7 +9,10 @@ let package = Package(
         .library(name: "MacToysKit", targets: ["MacToysKit"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "1.9.4")
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "1.9.4"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main"),
+        .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0")
     ],
     targets: [
         // ─── Core SDK ───────────────────────────────────────────
@@ -58,8 +61,23 @@ let package = Package(
         ),
         .target(
             name: "TypingAssist",
-            dependencies: ["MacToysKit"],
+            dependencies: [
+                "MacToysKit"
+            ],
             path: "Sources/Extensions/TypingAssist"
+        ),
+        .target(
+            name: "GrammarChecker",
+            dependencies: [
+                "MacToysKit",
+                "ClipboardManager",
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+                .product(name: "Tokenizers", package: "swift-transformers")
+            ],
+            path: "Sources/Extensions/GrammarChecker"
         ),
         .target(
             name: "SpellChecker",
@@ -80,7 +98,8 @@ let package = Package(
                 "QRScanner",
                 "MobileScanner",
                 "TypingAssist",
-                "SpellChecker"
+                "SpellChecker",
+                "GrammarChecker"
             ]
         ),
         .testTarget(

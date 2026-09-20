@@ -11,6 +11,7 @@ import QRScanner
 import MobileScanner
 import TypingAssist
 import SpellChecker
+import GrammarChecker
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -18,6 +19,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var preferencesWindow: NSWindow?
     var onboardingWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
+    
+    override init() {
+        super.init()
+        // Fix for MLX Swift not finding the statically linked metallib
+        if let metallibPath = Bundle.main.url(forResource: "default", withExtension: "metallib")?.path {
+            setenv("METAL_LIBRARY_PATH", metallibPath, 1)
+        }
+    }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -28,6 +37,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if permissionManager.hasAccessibilityPermission {
             initializeApp()
         } else {
+            permissionManager.requestAccessibilityPermission()
             showOnboarding()
             
             NotificationCenter.default.publisher(for: .accessibilityPermissionGranted)
@@ -98,6 +108,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.register(MobileScannerModule())
         ModuleRegistry.shared.register(TypingAssistModule.shared)
         ModuleRegistry.shared.register(SpellCheckerModule.shared)
+        ModuleRegistry.shared.register(GrammarCheckerModule.shared)
     }
     
     @objc func openPreferences() {

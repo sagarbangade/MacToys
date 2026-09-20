@@ -30,7 +30,7 @@ public final class ClipboardModule: UtilityModule {
     public var shortcutName: KeyboardShortcuts.Name? { .clipboardManager }
     
     private var window: ClipboardOverlayWindow?
-    private let watcher = ClipboardWatcher()
+    private let watcher = ClipboardWatcher.shared
     private var globalEscapeMonitor: Any?
     
     public init() {}

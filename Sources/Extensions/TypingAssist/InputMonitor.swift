@@ -16,8 +16,6 @@ public final class InputMonitor: @unchecked Sendable {
     nonisolated(unsafe) private var selectedSuggestionIndex = 0
     nonisolated(unsafe) private var isCompletingPartialWord = false
     nonisolated(unsafe) private var compositionGeneration = 0
-    nonisolated(unsafe) private var isOutOfSync = false
-    private var suggestionWorkItem: DispatchWorkItem?
 
     fileprivate let syntheticEventMarker: Int64 = 0x4D54_4153
 
@@ -25,13 +23,14 @@ public final class InputMonitor: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
+    @MainActor
     public func start() {
         if eventPort != nil {
             print("[TypingAssist] Event tap already running, skipping")
             return
         }
 
-        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
+        let eventMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
 
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -47,12 +46,14 @@ public final class InputMonitor: @unchecked Sendable {
         }
 
         self.eventPort = port
-        self.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+        self.runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: port, enable: true)
-        print("[TypingAssist] Event tap started successfully")
+        print("[TypingAssist] ✅ Event tap created and listening for keystrokes!")
     }
 
+    @MainActor
     public func stop() {
         if let port = eventPort {
             CGEvent.tapEnable(tap: port, enable: false)
@@ -64,106 +65,86 @@ public final class InputMonitor: @unchecked Sendable {
             self.runLoopSource = nil
         }
         clearSuggestions()
-        suggestionWorkItem?.cancel()
-        suggestionWorkItem = nil
+        currentWord = ""
+        DispatchQueue.main.async { SuggestionUI.shared.hide() }
         print("[TypingAssist] Event tap stopped")
     }
 
     // MARK: - Event Handling
 
-    fileprivate func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        currentWord = ""
-        isOutOfSync = true
-        clearSuggestions()
-        return Unmanaged.passUnretained(event)
-    }
-
     fileprivate func handleKeyDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // ── Tab (48): accept candidate ──
+        // ── Tab (48): preserve the existing next-word shortcut ──
         if keycode == 48, let suggestion = selectedSuggestion {
             accept(suggestion)
             return nil // swallow the Tab
         }
 
         // ── Left/right: choose candidate ──
-        if (keycode == 123 || keycode == 124 || keycode == 125 || keycode == 126) {
-            if !activeSuggestions.isEmpty {
-                if keycode == 123 || keycode == 124 {
-                    let delta = keycode == 123 ? -1 : 1
-                    selectedSuggestionIndex = (selectedSuggestionIndex + delta + activeSuggestions.count) % activeSuggestions.count
-                    updateSuggestionUI()
-                    return nil
-                }
+        if (keycode == 123 || keycode == 124), !activeSuggestions.isEmpty {
+            let delta = keycode == 123 ? -1 : 1
+            selectedSuggestionIndex = (selectedSuggestionIndex + delta + activeSuggestions.count) % activeSuggestions.count
+            if isCompletingPartialWord {
+                composeSelectedPartialWord()
             } else {
-                isOutOfSync = true
-                currentWord = ""
-                clearSuggestions()
+                updateSuggestionUI()
             }
+            return nil
         }
 
         // ── Escape (53): dismiss ──
         if keycode == 53, !activeSuggestions.isEmpty {
             clearSuggestions()
-            return nil
         }
 
         // ── Backspace (51) ──
         if keycode == 51 {
-            if currentWord.isEmpty {
-                isOutOfSync = true
+            // The generated suffix is selected in the focused editor. Let the
+            // app delete that selection, leaving the user's typed prefix intact.
+            if isCompletingPartialWord, selectedSuggestion != nil {
                 clearSuggestions()
                 return Unmanaged.passUnretained(event)
             }
-            currentWord.removeLast()
-            if isOutOfSync {
-                clearSuggestions()
-            } else {
-                showSuggestions(forPartialWord: currentWord)
-            }
+            if !currentWord.isEmpty { currentWord.removeLast() }
+            showSuggestions(forPartialWord: currentWord)
             return Unmanaged.passUnretained(event)
         }
 
-        // We only care about characters if no modifiers (other than Shift) are held
-        let flags = event.flags
-        let ignoredFlags: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate]
-        guard flags.intersection(ignoredFlags).isEmpty else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        var unichar = UniChar()
-        var actualLength = 0
-        event.keyboardGetUnicodeString(maxStringLength: 1, actualStringLength: &actualLength, unicodeString: &unichar)
-        guard actualLength > 0, let char = String(utf16CodeUnits: &unichar, count: 1).first else {
+        // ── Get typed character ──
+        guard let nsEvent = NSEvent(cgEvent: event),
+              nsEvent.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let chars = nsEvent.characters, chars.count == 1,
+              let char = chars.first else {
             return Unmanaged.passUnretained(event)
         }
 
         if char == " " || char == "\n" || char == "\r" {
+            // Space commits an inline completion by collapsing the selected
+            // suffix, then the original Space event creates the word boundary.
+            if isCompletingPartialWord, let suggestion = selectedSuggestion {
+                currentWord = suggestion
+                clearSuggestions()
+                collapseSelectionToEnd()
+            }
             // ── Word boundary: predict next word ──
             let finishedWord = currentWord
             currentWord = ""
-            isOutOfSync = false
 
             if !finishedWord.isEmpty {
                 print("[TypingAssist] Word completed: \"\(finishedWord)\" — looking up prediction...")
-                let generation = self.compositionGeneration
                 DispatchQueue.main.async {
-                    guard self.compositionGeneration == generation else { return }
                     PredictionEngine.shared.recordWord(finishedWord)
+
                     self.showSuggestions(after: finishedWord)
                 }
             }
         } else if char.isLetter || char.isNumber || char == "'" || char == "-" {
-            if isOutOfSync {
-                return Unmanaged.passUnretained(event)
-            }
             currentWord.append(char)
             showSuggestions(forPartialWord: currentWord)
         } else {
             // Punctuation — reset
             currentWord = ""
-            isOutOfSync = false
             clearSuggestions()
         }
 
@@ -176,32 +157,15 @@ public final class InputMonitor: @unchecked Sendable {
         activeSuggestions.indices.contains(selectedSuggestionIndex) ? activeSuggestions[selectedSuggestionIndex] : nil
     }
 
-    private func showSuggestions(forPartialWord word: String) {
-        guard !word.isEmpty else {
-            clearSuggestions()
-            return
+    private func showSuggestions(forPartialWord partial: String) {
+        DispatchQueue.main.async {
+            let candidates = PredictionEngine.shared.suggestions(after: nil, partialWord: partial)
+            self.present(candidates, completesPartialWord: true)
         }
-        suggestionWorkItem?.cancel()
-        let generation = compositionGeneration
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.compositionGeneration == generation,
-                      self.currentWord == word else { return }
-                let candidates = PredictionEngine.shared.suggestions(after: nil, partialWord: word)
-                self.present(candidates, completesPartialWord: true)
-            }
-        }
-        suggestionWorkItem = workItem
-        // NSSpellChecker completion lookup is synchronous. Coalescing rapid
-        // typing prevents it from blocking the event-tap run loop.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
     }
 
     private func showSuggestions(after word: String) {
-        let generation = self.compositionGeneration
         DispatchQueue.main.async {
-            guard self.compositionGeneration == generation else { return }
             let candidates = PredictionEngine.shared.suggestions(after: word, partialWord: "")
             self.present(candidates, completesPartialWord: false)
         }
@@ -209,14 +173,15 @@ public final class InputMonitor: @unchecked Sendable {
 
     private func present(_ candidates: [String], completesPartialWord: Bool) {
         activeSuggestions = completesPartialWord
-            ? candidates.filter { candidate in
-                candidate.caseInsensitiveCompare(currentWord) != .orderedSame
-                    && candidate.lowercased().hasPrefix(currentWord.lowercased())
-            }
+            ? candidates.filter { $0.caseInsensitiveCompare(currentWord) != .orderedSame }
             : candidates
         selectedSuggestionIndex = 0
         isCompletingPartialWord = completesPartialWord
-        updateSuggestionUI()
+        if completesPartialWord {
+            composeSelectedPartialWord()
+        } else {
+            updateSuggestionUI()
+        }
     }
 
     private func updateSuggestionUI() {
@@ -224,9 +189,7 @@ public final class InputMonitor: @unchecked Sendable {
             DispatchQueue.main.async { SuggestionUI.shared.hide() }
             return
         }
-        let generation = self.compositionGeneration
         DispatchQueue.main.async {
-            guard self.compositionGeneration == generation else { return }
             SuggestionUI.shared.show(
                 suggestions: self.activeSuggestions,
                 selectedIndex: self.selectedSuggestionIndex,
@@ -247,12 +210,10 @@ public final class InputMonitor: @unchecked Sendable {
         let completesPartialWord = isCompletingPartialWord
         let text: String
         if completesPartialWord {
-            guard suggestion.lowercased().hasPrefix(currentWord.lowercased()) else {
-                clearSuggestions()
-                return
-            }
-            text = String(suggestion.dropFirst(currentWord.count))
+            // The selected suffix is already in the editor. Tab only commits it.
+            text = ""
             currentWord = suggestion
+            collapseSelectionToEnd()
         } else {
             text = suggestion + " "
             currentWord = ""
@@ -276,6 +237,34 @@ public final class InputMonitor: @unchecked Sendable {
         }
     }
 
+    /// Writes only the missing suffix and selects it, producing native inline
+    /// composition in the target field instead of an approximation in an overlay.
+    private func composeSelectedPartialWord() {
+        guard let suggestion = selectedSuggestion,
+              suggestion.hasPrefix(currentWord),
+              suggestion != currentWord else {
+            updateSuggestionUI()
+            return
+        }
+        let suffix = String(suggestion.dropFirst(currentWord.count))
+        let generation = compositionGeneration + 1
+        compositionGeneration = generation
+
+        DispatchQueue.main.async {
+            guard self.compositionGeneration == generation else { return }
+            self.pasteText(suffix) {
+                guard self.compositionGeneration == generation else { return }
+                self.selectLastCharacters(suffix.count)
+                self.updateSuggestionUI()
+            }
+        }
+    }
+
+    private func pasteText(_ text: String, completion: @escaping @Sendable () -> Void) {
+        self.typeText(text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: completion)
+    }
+
     private func typeText(_ text: String) {
         let source = CGEventSource(stateID: .hidSystemState)
         let utf16Chars = Array(text.utf16)
@@ -296,6 +285,27 @@ public final class InputMonitor: @unchecked Sendable {
         }
     }
 
+    private func selectLastCharacters(_ count: Int) {
+        postKey(123, flags: .maskShift, count: count)
+    }
+
+    private func collapseSelectionToEnd() {
+        postKey(124, flags: [], count: 1)
+    }
+
+    private func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, count: Int) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        for _ in 0..<count {
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { continue }
+            down.flags = flags
+            up.flags = flags
+            down.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
+            up.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
+    }
 }
 
 // MARK: - C Function Pointer (no captures allowed)
@@ -323,10 +333,6 @@ private func eventTapCallback(
             CGEvent.tapEnable(tap: port, enable: true)
         }
         return Unmanaged.passUnretained(event)
-    }
-
-    if type == .leftMouseDown {
-        return monitor.handleMouseDown(event: event)
     }
 
     guard type == .keyDown else {
