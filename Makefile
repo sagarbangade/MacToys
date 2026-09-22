@@ -84,9 +84,14 @@ install: reset-permissions build
 	@mkdir -p "$(INPUT_METHODS_DIR)"
 	@rm -rf "$(INPUT_METHODS_DIR)/$(APP_NAME).app"
 	@cp -R $(APP_BUNDLE) "$(INPUT_METHODS_DIR)/$(APP_NAME).app"
+	@echo "Also copying to ~/Applications for Spotlight/Launchpad searchability..."
+	@mkdir -p ~/Applications
+	@rm -rf ~/Applications/$(APP_NAME).app
+	@cp -R $(APP_BUNDLE) ~/Applications/$(APP_NAME).app
 	@echo "Registering Input Method..."
 	@/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$(INPUT_METHODS_DIR)/$(APP_NAME).app" || true
-	@echo "✅ Installed to $(INPUT_METHODS_DIR)!"
+	@/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f ~/Applications/$(APP_NAME).app || true
+	@echo "✅ Installed to $(INPUT_METHODS_DIR) and ~/Applications!"
 
 # ─── Web Companion Apps ─────────────────────────────────────
 

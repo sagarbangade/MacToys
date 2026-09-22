@@ -134,81 +134,121 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct OnboardingView: View {
     @StateObject private var permissionManager = PermissionManager.shared
+    @State private var isAnimating = false
     
     var body: some View {
-        VStack(spacing: 30) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
-                .resizable()
-                .frame(width: 100, height: 100)
+        ZStack {
+            // Background
+            MeshGradientBackground(color1: Color.blue, color2: Color.purple)
+                .ignoresSafeArea()
+            
+            VisualEffectView().ignoresSafeArea()
+            
+            VStack(spacing: 32) {
+                // Icon Header
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.1))
+                        .frame(width: 140, height: 140)
+                        .blur(radius: 10)
+                        .scaleEffect(isAnimating ? 1.05 : 0.95)
+                        .animation(.easeInOut(duration: 2).repeatForever(autoreverses: true), value: isAnimating)
+                    
+                    Image(nsImage: NSApplication.shared.applicationIconImage)
+                        .resizable()
+                        .frame(width: 100, height: 100)
+                        .shadow(color: .black.opacity(0.3), radius: 15, y: 10)
+                }
                 .padding(.top, 20)
-            
-            Text("Welcome to MacToys")
-                .font(.system(size: 28, weight: .bold))
-            
-            Text("To power global hotkeys, the Clipboard Manager, and Text Extractor, MacToys requires Accessibility permissions to interact with other apps.")
-                .font(.system(size: 14))
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 40)
-            
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "1.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.blue)
-                    VStack(alignment: .leading) {
-                        Text("Open System Settings")
-                            .font(.headline)
-                        Text("Click the button below to open Privacy & Security settings.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
+                
+                VStack(spacing: 8) {
+                    Text("Welcome to MacToys")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                    
+                    Text("Supercharge your Mac with global hotkeys,\nAI grammar correction, and text extraction.")
+                        .font(.system(size: 16, weight: .medium))
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.white.opacity(0.85))
+                        .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+                        .padding(.horizontal, 40)
                 }
                 
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "2.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.blue)
-                    VStack(alignment: .leading) {
-                        Text("Enable MacToys")
-                            .font(.headline)
-                        Text("Find MacToys in the list and turn the toggle ON.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                // Instructions Card
+                VStack(spacing: 0) {
+                    HStack(alignment: .top, spacing: 16) {
+                        Image(systemName: "1.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Open System Settings")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                            Text("Click the button below to open Privacy & Security.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
                     }
+                    .padding(20)
+                    
+                    Divider().padding(.leading, 60)
+                    
+                    HStack(alignment: .top, spacing: 16) {
+                        Image(systemName: "2.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Enable MacToys")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                            Text("Find MacToys in the list and turn the toggle ON.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(20)
                 }
+                .background(Color(NSColor.windowBackgroundColor).opacity(0.9))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: .black.opacity(0.15), radius: 10, y: 5)
+                .padding(.horizontal, 40)
+                
+                // Action Button
+                Button(action: {
+                    openAccessibilitySettings()
+                }) {
+                    Text("Open System Settings")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            LinearGradient(colors: [Color.blue, Color.purple.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .shadow(color: .blue.opacity(0.3), radius: 8, y: 4)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 40)
+                .padding(.top, 10)
+                
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .colorScheme(.dark)
+                    Text("Waiting for permission...")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                .padding(.bottom, 20)
             }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(12)
-            .padding(.horizontal, 30)
-            
-            Button(action: {
-                openAccessibilitySettings()
-            }) {
-                Text("Open System Settings")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 24)
-                    .background(Color.blue)
-                    .cornerRadius(8)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .padding(.top, 10)
-            
-            HStack(spacing: 8) {
-                ProgressView()
-                    .scaleEffect(0.5)
-                Text("Waiting for permission...")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.bottom, 30)
         }
-        .frame(width: 500, height: 550)
-        .background(VisualEffectView().ignoresSafeArea())
+        .frame(width: 550, height: 650)
         .onAppear {
+            isAnimating = true
             permissionManager.requestAccessibilityPermission()
             permissionManager.startMonitoringAccessibility()
         }

@@ -29,15 +29,25 @@ public final class GrammarCheckerModule: UtilityModule {
             self?.triggerAction()
         }
         
-        // Pre-warm the MLX model asynchronously
+        // Start the native overlay engine
+        GrammarOverlayManager.shared.start()
+        
+        // Boot up the Python sidecar immediately if enabled
         Task {
-            await LocalAIEngine.shared.loadModelIfNeeded()
+            do {
+                try await GECSidecar.shared.start()
+            } catch {
+                print("[GrammarChecker] Failed to start sidecar: \(error)")
+            }
         }
     }
 
     public func stop() {
         print("[GrammarChecker] stop() called")
-        LocalAIEngine.shared.cancelLoading()
+        GrammarOverlayManager.shared.stop()
+        Task {
+            await GECSidecar.shared.stop()
+        }
     }
 
     public func triggerAction() {
@@ -47,22 +57,7 @@ public final class GrammarCheckerModule: UtilityModule {
     }
 
     public func makeSettingsView() -> AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Grammar Checker")
-                    .font(.headline)
-                Text("Select text in any app and press Cmd+Shift+G to instantly fix grammar.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Text("Powered by Llama-3.2 running locally on Apple Silicon.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
-                KeyboardShortcuts.Recorder("Shortcut:", name: .grammarChecker)
-                Spacer()
-            }
-            .padding()
-        )
+        AnyView(GrammarCheckerSettingsView())
     }
 }
 

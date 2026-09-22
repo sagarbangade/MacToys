@@ -49,6 +49,8 @@ actor GECSidecar {
                 "--with", "mlx",
                 "--with", "transformers",
                 "--with", "sentencepiece",
+                "--with", "litellm",
+                "--with", "llama-cpp-python",
                 "python3", gecScript,
             ]
         } else {
@@ -90,8 +92,8 @@ actor GECSidecar {
         try await waitForReady(timeout: 300) // 5 min timeout for first download
     }
 
-    /// Correct grammar in the given text.
-    func correct(text: String) async throws -> String {
+    /// Correct grammar or apply instruction to the given text.
+    func correct(text: String, instruction: String = "") async throws -> String {
         guard isReady else { throw GECError.notReady }
         guard let stdinHandle = stdin, process?.isRunning == true else {
             throw GECError.processNotRunning
@@ -99,8 +101,25 @@ actor GECSidecar {
 
         requestCounter += 1
         let reqId = "\(requestCounter)"
+        
+        let defaults = UserDefaults.standard
+        let backendType = defaults.string(forKey: "gecBackendType") ?? "local"
+        let provider = defaults.string(forKey: "gecApiProvider") ?? "groq"
+        let model = defaults.string(forKey: "gecApiModel") ?? "groq/qwen/qwen3.8-27b"
+        let apiKey = defaults.string(forKey: "gecApiKey") ?? ""
+        let modelPath = defaults.string(forKey: "gecModelPath") ?? ""
 
-        let request: [String: Any] = ["text": text, "id": reqId]
+        let request: [String: Any] = [
+            "id": reqId,
+            "text": text,
+            "backend_type": backendType,
+            "provider": provider,
+            "model": model,
+            "api_key": apiKey,
+            "model_path": modelPath,
+            "instruction": instruction
+        ]
+        
         let jsonData = try JSONSerialization.data(withJSONObject: request)
         var line = jsonData
         line.append(contentsOf: [0x0A]) // newline
@@ -111,6 +130,13 @@ actor GECSidecar {
         }
     }
 
+    /// Send a command to the sidecar.
+    func sendCommand(_ cmd: String) {
+        guard let stdinHandle = stdin, process?.isRunning == true else { return }
+        let payload = #"{"command":"\#(cmd)"}"# + "\n"
+        stdinHandle.write(payload.data(using: .utf8)!)
+    }
+    
     /// Stop the sidecar process.
     func stop() {
         if let stdinHandle = stdin, process?.isRunning == true {
@@ -150,10 +176,15 @@ actor GECSidecar {
             }
 
             // Handle correction responses
-            if let reqId = json["id"] as? String,
-               let corrected = json["corrected"] as? String {
-                if let continuation = pendingRequests.removeValue(forKey: reqId) {
-                    continuation.resume(returning: corrected)
+            if let reqId = json["id"] as? String {
+                if let errorMsg = json["error"] as? String {
+                    if let continuation = pendingRequests.removeValue(forKey: reqId) {
+                        continuation.resume(returning: "Error: \(errorMsg)")
+                    }
+                } else if let corrected = json["corrected"] as? String {
+                    if let continuation = pendingRequests.removeValue(forKey: reqId) {
+                        continuation.resume(returning: corrected)
+                    }
                 }
             }
         }
