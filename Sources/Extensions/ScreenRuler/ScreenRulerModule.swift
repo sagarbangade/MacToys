@@ -107,12 +107,47 @@ public extension KeyboardShortcuts.Name {
 
 struct ScreenRulerSettingsView: View {
     var body: some View {
-        Form {
-            KeyboardShortcuts.Recorder("Shortcut:", name: .screenRuler)
-            Text("Press the hotkey to activate the screen ruler. Click and drag anywhere to measure pixels. Press Esc to exit, or right-click to clear measurement.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVATION SHORTCUT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "command",
+                        iconColor: .purple,
+                        title: "Measurement Hotkey",
+                        subtitle: "Click and drag anywhere on screen to measure pixels"
+                    ) {
+                        KeyboardShortcuts.Recorder("", name: .screenRuler)
+                    }
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("MEASUREMENT PRECISION")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "ruler.fill",
+                        iconColor: .indigo,
+                        title: "Sub-pixel Accuracy",
+                        subtitle: "Press ESC to exit, or right-click to clear measurement"
+                    ) {
+                        Text("Retina 2x")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(.purple)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.purple.opacity(0.15)))
+                    }
+                }
+            }
         }
-        .padding()
     }
 }

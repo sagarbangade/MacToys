@@ -97,22 +97,51 @@ struct ClipboardSettingsView: View {
     @ObservedObject var store = ClipboardStore.shared
     
     var body: some View {
-        Form {
-            KeyboardShortcuts.Recorder("Shortcut:", name: .clipboardManager)
-            
-            HStack {
-                Text("Stored Items:")
-                Text("\(store.items.count)")
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVATION SHORTCUT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
                 
-                Spacer()
-                
-                Button("Clear History") {
-                    store.items.removeAll()
+                PremiumCard {
+                    PremiumRow(
+                        icon: "command",
+                        iconColor: .blue,
+                        title: "Activation Hotkey",
+                        subtitle: "Open the Raycast-style clipboard search overlay"
+                    ) {
+                        KeyboardShortcuts.Recorder("", name: .clipboardManager)
+                    }
                 }
             }
-            .padding(.top, 10)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("HISTORY MANAGEMENT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "tray.full.fill",
+                        iconColor: .indigo,
+                        title: "Stored Clippings",
+                        subtitle: "\(store.items.count) clippings currently saved locally in memory"
+                    ) {
+                        Button(role: .destructive) {
+                            withAnimation {
+                                store.items.removeAll()
+                            }
+                        } label: {
+                            Text("Clear History")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(store.items.isEmpty)
+                    }
+                }
+            }
         }
-        .padding()
     }
 }

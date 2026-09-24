@@ -93,21 +93,46 @@ struct KeepAwakeSettingsView: View {
     @AppStorage("keepAwakeMode") private var mode: SleepPreventionMode = .display
     
     var body: some View {
-        Form {
-            Picker("Mode:", selection: $mode) {
-                ForEach(SleepPreventionMode.allCases) { m in
-                    Text(m.rawValue).tag(m)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SLEEP PREVENTION CONFIGURATION")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "sun.max.fill",
+                        iconColor: .yellow,
+                        title: "Prevention Mode",
+                        subtitle: "Control whether displays and system sleep are blocked"
+                    ) {
+                        Picker("", selection: $mode) {
+                            ForEach(SleepPreventionMode.allCases) { m in
+                                Text(m.rawValue).tag(m)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 190)
+                        .onChange(of: mode) { _, _ in
+                            module.restartAssertionIfNeeded()
+                        }
+                    }
+                    
+                    PremiumDivider()
+                    
+                    PremiumRow(
+                        icon: "bolt.badge.clock.fill",
+                        iconColor: .orange,
+                        title: "Quick Access",
+                        subtitle: "Toggle Keep Awake instantly from the MacToys menu bar"
+                    ) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 16))
+                    }
                 }
             }
-            .onChange(of: mode) { _, _ in
-                // Restart assertion with new mode if it's currently active
-                module.restartAssertionIfNeeded()
-            }
-            
-            Text("When enabled in the main menu, your Mac will stay awake.")
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
-        .padding()
     }
 }

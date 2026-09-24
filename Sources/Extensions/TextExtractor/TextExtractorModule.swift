@@ -112,12 +112,47 @@ public extension KeyboardShortcuts.Name {
 
 struct TextExtractorSettingsView: View {
     var body: some View {
-        Form {
-            KeyboardShortcuts.Recorder("Shortcut:", name: .textExtractor)
-            Text("Select a region on screen to extract text directly to your clipboard.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVATION SHORTCUT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "command",
+                        iconColor: .blue,
+                        title: "Capture Hotkey",
+                        subtitle: "Select any screen area to OCR text directly into your clipboard"
+                    ) {
+                        KeyboardShortcuts.Recorder("", name: .textExtractor)
+                    }
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("INTELLIGENCE ENGINE")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "eye.fill",
+                        iconColor: .indigo,
+                        title: "Apple Neural OCR",
+                        subtitle: "Hardware-accelerated text recognition using Apple Vision Framework"
+                    ) {
+                        Text("On-Device")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(.indigo)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.indigo.opacity(0.15)))
+                    }
+                }
+            }
         }
-        .padding()
     }
 }

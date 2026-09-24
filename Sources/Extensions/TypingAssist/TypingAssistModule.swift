@@ -38,19 +38,48 @@ public final class TypingAssistModule: UtilityModule {
     }
 
     public func makeSettingsView() -> AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Typing Assistant")
-                    .font(.headline)
-                Text("Predicts next words as you type across all apps. Press Tab to accept a suggestion.")
-                    .font(.subheadline)
+        AnyView(TypingAssistSettingsView())
+    }
+}
+
+struct TypingAssistSettingsView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ASSISTANCE ENGINE")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundColor(.secondary)
-                Text("Learns from your typing patterns over time.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Spacer()
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "keyboard.fill",
+                        iconColor: .teal,
+                        title: "Inline Word Prediction",
+                        subtitle: "Predicts next words in real time as you type across all apps"
+                    ) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 16))
+                    }
+                    
+                    PremiumDivider()
+                    
+                    PremiumRow(
+                        icon: "arrow.right.to.line.compact",
+                        iconColor: .blue,
+                        title: "Tab Acceptance",
+                        subtitle: "Press the Tab key at any time to accept the suggested prediction"
+                    ) {
+                        Text("Tab ⇥")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.blue.opacity(0.15)))
+                    }
+                }
             }
-            .padding()
-        )
+        }
     }
 }

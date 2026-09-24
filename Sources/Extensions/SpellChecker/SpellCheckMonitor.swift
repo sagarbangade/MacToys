@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import ApplicationServices
+import ClipboardManager
 
 /// Represents a single misspelled word with its location and suggestions.
 struct MisspelledWord {
@@ -109,7 +110,7 @@ final class SpellCheckMonitor {
     private func attachToApp(pid: pid_t) {
         // Skip our own app
         if let bundleId = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
-           bundleId == "com.mactoys.app" || isTerminal(bundleId) {
+           bundleId == "com.mactoys.inputmethod.MacToys" || isTerminal(bundleId) {
             detachObserver()
             SpellCheckOverlay.shared.clearAll()
             return
@@ -117,15 +118,33 @@ final class SpellCheckMonitor {
 
         let appElement = AXUIElementCreateApplication(pid)
 
+        // Crucial for Chromium / Electron / WebView2 apps (Slack, Teams, Chrome, VS Code)
+        AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+
         // Find focused element
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focused = focusedRef else {
-            print("[SpellChecker] No focused element for pid \(pid)")
+        var err = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef)
+        if err != .success || focusedRef == nil {
+            let systemWide = AXUIElementCreateSystemWide()
+            err = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef)
+        }
+
+        guard err == .success, let focused = focusedRef else {
             return
         }
 
-        let element = focused as! AXUIElement
+        var element = focused as! AXUIElement
+
+        // Resolve WebArea to actual inner text element in Chromium/Electron
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let role = roleRef as? String ?? ""
+        if role == "AXWebArea" {
+            if let resolved = resolveWebArea(element) {
+                element = resolved
+            }
+        }
 
         if pid == trackedPid, let trackedElement, CFEqual(trackedElement, element) {
             return
@@ -134,14 +153,12 @@ final class SpellCheckMonitor {
         detachObserver()
         trackedPid = pid
 
-        // Check if the element has a text value (i.e., it's a text field/editor)
-        var roleRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
-        let role = roleRef as? String ?? ""
+        var updatedRoleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &updatedRoleRef)
+        let updatedRole = updatedRoleRef as? String ?? ""
 
         let textRoles = ["AXTextArea", "AXTextField", "AXStaticText", "AXComboBox", "AXWebArea"]
-        guard textRoles.contains(role) || hasTextValue(element) else {
-            print("[SpellChecker] Focused element role '\(role)' is not a text field")
+        guard textRoles.contains(updatedRole) || hasTextValue(element) else {
             misspelledWords = []
             SpellCheckOverlay.shared.clearAll()
             return
@@ -149,7 +166,7 @@ final class SpellCheckMonitor {
 
         trackedElement = element
 
-        // Create AX observer for value changes
+        // Create AX observer for value changes and selection changes (Chromium fires selection changes on typing)
         var observer: AXObserver?
         let result = AXObserverCreate(pid, { (observer, element, notification, refcon) in
             guard let refcon else { return }
@@ -163,10 +180,12 @@ final class SpellCheckMonitor {
             self.axObserver = observer
             AXObserverAddNotification(observer, element, kAXValueChangedNotification as CFString,
                                       Unmanaged.passUnretained(self).toOpaque())
+            AXObserverAddNotification(observer, element, kAXSelectedTextChangedNotification as CFString,
+                                      Unmanaged.passUnretained(self).toOpaque())
             CFRunLoopAddSource(CFRunLoopGetMain(),
                                AXObserverGetRunLoopSource(observer),
                                .defaultMode)
-            print("[SpellChecker] Attached AX observer to pid \(pid), role: \(role)")
+            print("[SpellChecker] Attached AX observer to pid \(pid), role: \(updatedRole)")
         }
 
         // Do an initial spell check right away
@@ -176,6 +195,7 @@ final class SpellCheckMonitor {
     private func detachObserver() {
         if let observer = axObserver, let element = trackedElement {
             AXObserverRemoveNotification(observer, element, kAXValueChangedNotification as CFString)
+            AXObserverRemoveNotification(observer, element, kAXSelectedTextChangedNotification as CFString)
             CFRunLoopRemoveSource(CFRunLoopGetMain(),
                                   AXObserverGetRunLoopSource(observer),
                                   .defaultMode)
@@ -200,10 +220,8 @@ final class SpellCheckMonitor {
     private func performSpellCheck() {
         guard let element = trackedElement else { return }
 
-        // Read text around the caret, not an entire document or terminal buffer.
-        var valueRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
-              let text = valueRef as? String, !text.isEmpty else {
+        // Read text: try kAXValueAttribute, but if empty/nil/placeholder, use chunk-based extraction around caret
+        guard let (text, globalOffset) = extractTextAndOffset(from: element), !text.isEmpty else {
             misspelledWords = []
             SpellCheckOverlay.shared.clearAll()
             return
@@ -228,7 +246,7 @@ final class SpellCheckMonitor {
             inSpellDocumentWithTag: spellDocumentTag
         ) { @Sendable [weak self] _, results, _, _ in
             let spellingRanges = results.filter { $0.resultType == .spelling }.map { $0.range }
-            let safeBaseOffset = window.baseOffset
+            let safeBaseOffset = globalOffset + window.baseOffset
             
             Task { @MainActor [weak self] in
                 guard let self,
@@ -288,6 +306,7 @@ final class SpellCheckMonitor {
 
         var rect = CGRect.zero
         guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) else { return nil }
+        guard rect.width > 1 && rect.height > 1 else { return nil }
 
         return rect
     }
@@ -382,21 +401,75 @@ final class SpellCheckMonitor {
 
         CorrectionPopup.shared.hide()
 
-        // Use AX API to select the range and replace
+        // 1. Get the target application PID from AXUIElement
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let targetApp = NSRunningApplication(processIdentifier: pid)
+
+        // 2. Select the misspelled word range via AX
         var cfRange = CFRange(location: word.range.location, length: word.range.length)
         guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return }
-
-        // Set the selection to the misspelled word
         AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
 
-        // Replace with the correction
-        AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, replacement as CFString)
+        // 3. Re-activate the target app so it receives key events
+        if let app = targetApp {
+            if #available(macOS 14.0, *) {
+                NSApp.yieldActivation(to: app)
+            }
+            app.activate(options: .activateIgnoringOtherApps)
+        }
 
-        print("[SpellChecker] Replaced '\(word.word)' with '\(replacement)'")
+        // 4. Paste the replacement via Cmd+V (required for React / Quill / Teams / Slack)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.pasteText(replacement)
 
-        // Re-check after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.performSpellCheck()
+            print("[SpellChecker] Replaced '\(word.word)' with '\(replacement)' via Cmd+V")
+
+            // Re-check after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                self?.performSpellCheck()
+            }
+        }
+    }
+
+    private func pasteText(_ text: String) {
+        ClipboardWatcher.isPaused = true
+
+        let pasteboard = NSPasteboard.general
+        let oldString = pasteboard.string(forType: .string)
+        let needsRestore = (oldString != nil)
+
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        let source = CGEventSource(stateID: .combinedSessionState)
+        source?.setLocalEventsFilterDuringSuppressionState([.permitLocalMouseEvents, .permitSystemDefinedEvents], state: .eventSuppressionStateSuppressionInterval)
+
+        let vKeyCode: CGKeyCode = 9
+        let cmdV_down = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
+        cmdV_down?.flags = .maskCommand
+        let cmdV_up = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
+        cmdV_up?.flags = .maskCommand
+
+        cmdV_down?.post(tap: .cgAnnotatedSessionEventTap)
+        cmdV_up?.post(tap: .cgAnnotatedSessionEventTap)
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
+            if needsRestore {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                if let str = oldString {
+                    pb.setString(str, forType: .string)
+                }
+            }
+            DispatchQueue.main.async {
+                ClipboardWatcher.shared.syncChangeCount()
+                ClipboardWatcher.isPaused = false
+                ClipboardWatcher.shared.ignore(text)
+                if let str = oldString {
+                    ClipboardWatcher.shared.ignore(str)
+                }
+            }
         }
     }
 
@@ -405,5 +478,140 @@ final class SpellCheckMonitor {
         CorrectionPopup.shared.hide()
         // Re-check to remove the underline
         performSpellCheck()
+    }
+
+    // MARK: - Chromium & WebArea Support
+
+    private func resolveWebArea(_ webArea: AXUIElement) -> AXUIElement? {
+        // Fast path: direct focused child query on AXWebArea
+        var innerFocusedRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(webArea, kAXFocusedUIElementAttribute as CFString, &innerFocusedRef) == .success,
+           let inner = innerFocusedRef as! AXUIElement? {
+            var roleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(inner, kAXRoleAttribute as CFString, &roleRef)
+            let role = roleRef as? String ?? ""
+            if role == "AXTextArea" || role == "AXTextField" {
+                return inner
+            }
+        }
+
+        // Recursive fallback
+        var allInputs: [AXUIElement] = []
+        collectInputs(from: webArea, list: &allInputs, depth: 0)
+
+        for inp in allInputs {
+            var isFocRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(inp, kAXFocusedAttribute as CFString, &isFocRef) == .success,
+               let isFoc = isFocRef as? Bool, isFoc {
+                return inp
+            }
+        }
+
+        for inp in allInputs {
+            var valRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(inp, kAXValueAttribute as CFString, &valRef) == .success,
+               let s = valRef as? String, !s.isEmpty, !isKnownPlaceholder(s) {
+                return inp
+            }
+        }
+
+        return allInputs.first
+    }
+
+    private func collectInputs(from element: AXUIElement, list: inout [AXUIElement], depth: Int) {
+        if depth > 45 { return }
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let role = roleRef as? String ?? ""
+
+        if role == "AXTextArea" || role == "AXTextField" {
+            list.append(element)
+            return
+        }
+
+        var childrenRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
+        if let children = childrenRef as? [AXUIElement] {
+            for child in children {
+                collectInputs(from: child, list: &list, depth: depth + 1)
+            }
+        }
+    }
+
+    private func extractTextAndOffset(from element: AXUIElement) -> (String, Int)? {
+        // Strategy 1: Standard kAXValueAttribute
+        var valueRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+           let val = valueRef {
+            var str: String?
+            if CFGetTypeID(val) == CFStringGetTypeID() {
+                str = val as? String
+            } else if CFGetTypeID(val) == CFAttributedStringGetTypeID() {
+                str = CFAttributedStringGetString(val as! CFAttributedString) as String
+            }
+            if let str = str, !str.isEmpty, !isKnownPlaceholder(str) {
+                return (str, 0)
+            }
+        }
+
+        // Strategy 2: Query AXNumberOfCharacters if supported (Chromium / WebKit)
+        var totalChars: Int? = nil
+        var numCharsRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXNumberOfCharacters" as CFString, &numCharsRef) == .success,
+           let count = numCharsRef as? Int, count > 0 {
+            totalChars = count
+        }
+
+        // Strategy 3: Cursor position + dynamic chunk read
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+           let rangeVal = rangeRef {
+            var range = CFRange()
+            AXValueGetValue(rangeVal as! AXValue, .cfRange, &range)
+
+            let start = max(0, range.location - 500)
+            let maxAvailable = totalChars.map { max(0, $0 - start) } ?? max(100, range.location + range.length - start)
+            var attemptLengths = [min(1000, maxAvailable), 500, 250, 100, 50, 20]
+            if let total = totalChars {
+                attemptLengths.insert(total, at: 0)
+            }
+
+            for len in attemptLengths {
+                guard len > 0 else { continue }
+                var textRange = CFRange(location: start, length: len)
+                let textRangeVal = AXValueCreate(.cfRange, &textRange)!
+
+                var stringRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString, textRangeVal, &stringRef) == .success,
+                   let stringVal = stringRef as? String, !stringVal.isEmpty, !isKnownPlaceholder(stringVal) {
+                    return (stringVal, start)
+                }
+            }
+        }
+
+        // Strategy 4: Full range from 0 to totalChars if cursor was unavailable
+        if let total = totalChars, total > 0 {
+            var textRange = CFRange(location: 0, length: total)
+            let textRangeVal = AXValueCreate(.cfRange, &textRange)!
+            var stringRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString, textRangeVal, &stringRef) == .success,
+               let stringVal = stringRef as? String, !stringVal.isEmpty, !isKnownPlaceholder(stringVal) {
+                return (stringVal, 0)
+            }
+        }
+
+        return nil
+    }
+
+    private func isKnownPlaceholder(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let placeholders = [
+            "Type a message",
+            "Type a new message",
+            "Message to",
+            "Search",
+            "Write a message"
+        ]
+        return placeholders.contains { trimmed.hasPrefix($0) }
     }
 }

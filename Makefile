@@ -34,7 +34,7 @@ package:
 		find mlx-generated/metal mlx/mlx/backend/metal/kernels -name "*.metal" | xargs xcrun -sdk macosx metal -I. -Imlx -Imlx/mlx/backend/metal/kernels -c && \
 		xcrun -sdk macosx metallib *.air -o default.metallib; \
 	fi
-	@swift build -c release -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker Sources/MacToys/Info.plist
+	@swift build -c release --product $(APP_NAME) -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$(CURDIR)/Sources/MacToys/Info.plist"
 	@rm -rf $(APP_BUNDLE)
 	@mkdir -p $(MACOS_DIR)
 	@mkdir -p $(RESOURCES_DIR)
@@ -44,16 +44,22 @@ package:
 	@cp Sources/MacToys/Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	@echo "Copying Swift Package resources..."
 	@cp -R .build/arm64-apple-macosx/release/*.bundle $(RESOURCES_DIR)/ 2>/dev/null || true
-	@echo "Copying GEC Python sidecar..."
 	@cp Resources/gec_server.py $(RESOURCES_DIR)/gec_server.py 2>/dev/null || true
 	@cp -R Resources/t5_module $(RESOURCES_DIR)/t5_module 2>/dev/null || true
+	@cp Resources/*.gguf $(RESOURCES_DIR)/ 2>/dev/null || true
 	@if [ -f ".build/checkouts/mlx-swift/Source/Cmlx/default.metallib" ]; then \
 		cp ".build/checkouts/mlx-swift/Source/Cmlx/default.metallib" $(RESOURCES_DIR)/default.metallib; \
 		mkdir -p $(APP_BUNDLE)/Contents/MacOS/Resources; \
 		cp ".build/checkouts/mlx-swift/Source/Cmlx/default.metallib" $(APP_BUNDLE)/Contents/MacOS/Resources/default.metallib; \
 	fi
-	@echo "Code signing with ad-hoc..."
-	@codesign --force --deep --sign - $(APP_BUNDLE)
+	@echo "Code signing with stable identity..."
+	@if security find-identity -v -p codesigning | grep -q "MacToys Development"; then \
+		codesign --force --deep --sign "MacToys Development" $(APP_BUNDLE); \
+	else \
+		echo "⚠️  No 'MacToys Development' certificate found, falling back to ad-hoc signing"; \
+		echo "   Run 'make create-cert' to create a stable signing identity"; \
+		codesign --force --deep --sign - $(APP_BUNDLE); \
+	fi
 	@touch "dist/.metadata_never_index"
 	@echo "✅ Build complete! App is ready in ./$(APP_BUNDLE)"
 
@@ -79,19 +85,17 @@ run: build
 	@echo "Launching $(APP_NAME) from dist folder..."
 	@open $(APP_BUNDLE)
 
-install: reset-permissions build
-	@echo "Installing to the current user's Input Methods folder..."
-	@mkdir -p "$(INPUT_METHODS_DIR)"
-	@rm -rf "$(INPUT_METHODS_DIR)/$(APP_NAME).app"
-	@cp -R $(APP_BUNDLE) "$(INPUT_METHODS_DIR)/$(APP_NAME).app"
-	@echo "Also copying to ~/Applications for Spotlight/Launchpad searchability..."
+install: build
+	@echo "Installing to ~/Applications for Spotlight/Launchpad..."
 	@mkdir -p ~/Applications
 	@rm -rf ~/Applications/$(APP_NAME).app
 	@cp -R $(APP_BUNDLE) ~/Applications/$(APP_NAME).app
-	@echo "Registering Input Method..."
-	@/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$(INPUT_METHODS_DIR)/$(APP_NAME).app" || true
+	@echo "Cleaning up any old duplicate in Input Methods folder..."
+	@/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -u "$(INPUT_METHODS_DIR)/$(APP_NAME).app" 2>/dev/null || true
+	@rm -rf "$(INPUT_METHODS_DIR)/$(APP_NAME).app" 2>/dev/null || true
+	@echo "Registering application with LaunchServices..."
 	@/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f ~/Applications/$(APP_NAME).app || true
-	@echo "✅ Installed to $(INPUT_METHODS_DIR) and ~/Applications!"
+	@echo "✅ Installed cleanly to ~/Applications!"
 
 # ─── Web Companion Apps ─────────────────────────────────────
 

@@ -7,7 +7,7 @@
     <key>CFBundleIdentifier</key>
     <string>com.mactoys.inputmethod.MacToys</string>
     <key>CFBundleName</key>
-    <string>MacToys Assistant</string>
+    <string>MacToys</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
@@ -20,48 +20,5 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
-    
-    <!-- InputMethodKit Keys -->
-    <key>InputMethodConnectionName</key>
-    <string>MacToys_1_Connection</string>
-    <key>InputMethodServerControllerClass</key>
-    <string>IMKTypingController</string>
-    <key>tsInputMethodCharacterRepertoireKey</key>
-    <array>
-        <string>Latn</string>
-    </array>
-    <key>tsInputMethodIconFileKey</key>
-    <string>AppIcon.icns</string>
-    <key>ComponentInputModeDict</key>
-    <dict>
-        <key>tsInputModeListKey</key>
-        <dict>
-            <key>com.mactoys.inputmethod.MacToys.typingassist</key>
-            <dict>
-                <key>TISIntendedLanguage</key>
-                <string>en</string>
-                <key>tsInputModeAlternateMenuIconFileKey</key>
-                <string>AppIcon.icns</string>
-                <key>tsInputModeCharacterRepertoireKey</key>
-                <array>
-                    <string>Latn</string>
-                </array>
-                <key>tsInputModeDefaultStateKey</key>
-                <true/>
-                <key>tsInputModeIsVisibleKey</key>
-                <true/>
-                <key>tsInputModeKeyEquivalentKey</key>
-                <string>M</string>
-                <key>tsInputModeKeyEquivalentModifiersKey</key>
-                <integer>4608</integer>
-                <key>tsInputModeMenuIconFileKey</key>
-                <string>AppIcon.icns</string>
-                <key>tsInputModePrimaryInScriptKey</key>
-                <true/>
-                <key>tsInputModeScriptKey</key>
-                <string>smRoman</string>
-            </dict>
-        </dict>
-    </dict>
 </dict>
 </plist>

@@ -2,6 +2,13 @@ import Foundation
 import AppKit
 import SwiftUI
 
+// Custom HostingView that accepts clicks immediately (no double-click needed on non-activating panel)
+private class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+}
+
 /// A small floating popup that appears when hovering over a misspelled word,
 /// showing the correction and accept/dismiss actions. Styled like Grammarly.
 @MainActor
@@ -29,8 +36,10 @@ final class CorrectionPopup {
         p.level = .popUpMenu
         p.backgroundColor = .clear
         p.isOpaque = false
-        p.hasShadow = true
+        p.hasShadow = false
         p.ignoresMouseEvents = false
+        p.isFloatingPanel = true
+        p.hidesOnDeactivate = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.animationBehavior = .utilityWindow
 
@@ -56,7 +65,7 @@ final class CorrectionPopup {
         let topSuggestion = word.suggestions.first ?? word.word
 
         // Build the popup content
-        let hostingView = NSHostingView(rootView: CorrectionPopupView(
+        let hostingView = ClickThroughHostingView(rootView: CorrectionPopupView(
             originalWord: word.word,
             suggestion: topSuggestion,
             allSuggestions: word.suggestions,

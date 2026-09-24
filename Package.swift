@@ -81,7 +81,10 @@ let package = Package(
         ),
         .target(
             name: "SpellChecker",
-            dependencies: ["MacToysKit"],
+            dependencies: [
+                "MacToysKit",
+                "ClipboardManager"
+            ],
             path: "Sources/Extensions/SpellChecker"
         ),
 

@@ -53,8 +53,9 @@ class UniversalOrchestrator:
             with self.sts_lock:
                 if not hasattr(self, 'sts_model'):
                     import os
-                    judge_path = os.path.join(os.path.dirname(__file__), 'all-MiniLM-L6-v2-q8_0.gguf')
-                    if os.path.exists(judge_path) and Llama is not None:
+                    judge_names = ['all-MiniLM-L6-v2-Q8_0.gguf', 'all-MiniLM-L6-v2-q8_0.gguf']
+                    judge_path = next((os.path.join(os.path.dirname(__file__), n) for n in judge_names if os.path.exists(os.path.join(os.path.dirname(__file__), n))), None)
+                    if judge_path and Llama is not None:
                         self.sts_model = Llama(
                             model_path=judge_path,
                             embedding=True,
@@ -205,8 +206,9 @@ class UniversalOrchestrator:
                 logger.info("Loading Anti-Hallucination Judge (Llama.cpp MiniLM)...")
                 try:
                     import os
-                    judge_path = os.path.join(os.path.dirname(__file__), 'all-MiniLM-L6-v2-q8_0.gguf')
-                    if not os.path.exists(judge_path):
+                    judge_names = ['all-MiniLM-L6-v2-Q8_0.gguf', 'all-MiniLM-L6-v2-q8_0.gguf']
+                    judge_path = next((os.path.join(os.path.dirname(__file__), n) for n in judge_names if os.path.exists(os.path.join(os.path.dirname(__file__), n))), None)
+                    if not judge_path:
                         logger.error("MiniLM GGUF not found. Skipping judge.")
                         return False, 1.0
                     self.sts_model = Llama(

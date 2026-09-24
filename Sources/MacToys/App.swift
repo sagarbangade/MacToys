@@ -7,7 +7,7 @@ struct MacToysApp: App {
     
     var body: some Scene {
         Settings {
-            EmptyView()
+            PreferencesView()
         }
     }
 }

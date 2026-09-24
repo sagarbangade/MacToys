@@ -113,12 +113,44 @@ public extension KeyboardShortcuts.Name {
 
 struct QRScannerSettingsView: View {
     var body: some View {
-        Form {
-            KeyboardShortcuts.Recorder("Shortcut:", name: .qrScanner)
-            Text("Select a region on screen containing a QR code or barcode to extract its data directly to your clipboard.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVATION SHORTCUT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "command",
+                        iconColor: .mint,
+                        title: "Scanner Hotkey",
+                        subtitle: "Select a region on screen containing a QR or barcode"
+                    ) {
+                        KeyboardShortcuts.Recorder("", name: .qrScanner)
+                    }
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("INTELLIGENT ACTIONS")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "doc.on.clipboard.fill",
+                        iconColor: .teal,
+                        title: "Auto-Copy Payload",
+                        subtitle: "Decoded text or URL is immediately copied to clipboard"
+                    ) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 16))
+                    }
+                }
+            }
         }
-        .padding()
     }
 }

@@ -33,6 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let permissionManager = PermissionManager.shared
         permissionManager.checkPermissions()
+        print("[MacToys] Launch: hasAccessibilityPermission=\(permissionManager.hasAccessibilityPermission)")
         
         if permissionManager.hasAccessibilityPermission {
             initializeApp()
@@ -112,14 +113,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func openPreferences() {
+        if #available(macOS 14.0, *) {
+            if NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+        }
+        if NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil) {
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        
         if preferencesWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 700, height: 450),
+                contentRect: NSRect(x: 0, y: 0, width: 840, height: 640),
                 styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
-            window.title = "MacToys Preferences"
+            window.title = "MacToys Settings"
             window.titlebarAppearsTransparent = true
             window.center()
             window.isReleasedWhenClosed = false

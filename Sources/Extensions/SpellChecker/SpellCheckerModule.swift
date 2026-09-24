@@ -10,7 +10,7 @@ public final class SpellCheckerModule: UtilityModule {
     public let id = "spellChecker"
     public let displayName = "Spell Checker"
     public let description = "Highlights misspelled words with red underlines and suggests corrections on hover"
-    public let iconSymbol = "textformat.abc.dottedunderline"
+    public let iconSymbol = "textformat.abc"
 
     public var isEnabled: Bool = false
     public let isEnabledByDefault = false
@@ -36,19 +36,61 @@ public final class SpellCheckerModule: UtilityModule {
     }
 
     public func makeSettingsView() -> AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Spell Checker")
-                    .font(.headline)
-                Text("Highlights misspelled words with red underlines across all apps. Hover over a word to see the correction.")
-                    .font(.subheadline)
+        AnyView(SpellCheckerSettingsView())
+    }
+}
+
+struct SpellCheckerSettingsView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SPELL CHECKING ENGINE")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundColor(.secondary)
-                Text("Works in native macOS apps (TextEdit, Notes, Mail, Safari).")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Spacer()
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "textformat.abc",
+                        iconColor: .red,
+                        title: "Real-Time Detection",
+                        subtitle: "Underlines misspellings in red across apps via macOS Accessibility"
+                    ) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 16))
+                    }
+                    
+                    PremiumDivider()
+                    
+                    PremiumRow(
+                        icon: "hand.tap.fill",
+                        iconColor: .orange,
+                        title: "Interactive Correction",
+                        subtitle: "Hover over underlined words to view smart correction popover"
+                    ) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 16))
+                    }
+                    
+                    PremiumDivider()
+                    
+                    PremiumRow(
+                        icon: "lock.shield.fill",
+                        iconColor: .teal,
+                        title: "On-Device Dictionary",
+                        subtitle: "Zero network telemetry; spellchecking runs 100% on your Mac"
+                    ) {
+                        Text("Private")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(.teal)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.teal.opacity(0.15)))
+                    }
+                }
             }
-            .padding()
-        )
+        }
     }
 }

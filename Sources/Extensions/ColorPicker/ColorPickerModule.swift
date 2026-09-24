@@ -111,19 +111,48 @@ struct ColorPickerSettingsView: View {
     @AppStorage("colorPickerFormat") private var selectedFormat: ColorFormat = .hex
     
     var body: some View {
-        Form {
-            KeyboardShortcuts.Recorder("Shortcut:", name: .colorPicker)
-            
-            Picker("Copy Format:", selection: $selectedFormat) {
-                ForEach(ColorFormat.allCases) { format in
-                    Text(format.rawValue).tag(format)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVATION SHORTCUT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "command",
+                        iconColor: .orange,
+                        title: "Eyedropper Hotkey",
+                        subtitle: "Activate the precision screen color loupe"
+                    ) {
+                        KeyboardShortcuts.Recorder("", name: .colorPicker)
+                    }
                 }
             }
             
-            Text("Press the hotkey to open the magnifying loupe. The selected color will be copied to your clipboard.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("COLOR OUTPUT FORMAT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "paintpalette.fill",
+                        iconColor: .pink,
+                        title: "Default Format",
+                        subtitle: "Color code automatically copied to clipboard on click"
+                    ) {
+                        Picker("", selection: $selectedFormat) {
+                            ForEach(ColorFormat.allCases) { format in
+                                Text(format.rawValue).tag(format)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 180)
+                    }
+                }
+            }
         }
-        .padding()
     }
 }

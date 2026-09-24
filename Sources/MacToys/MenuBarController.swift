@@ -11,13 +11,15 @@ class MenuBarController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 400)
+        popover.contentSize = NSSize(width: 390, height: 440)
         popover.behavior = .transient
         
         super.init()
         
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "wrench.and.screwdriver", accessibilityDescription: "MacToys")
+            let image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "MacToys")
+            image?.isTemplate = true
+            button.image = image
             button.action = #selector(togglePopover(_:))
             button.target = self
         }

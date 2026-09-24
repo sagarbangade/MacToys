@@ -141,14 +141,44 @@ struct MobileScannerSettingsView: View {
     @AppStorage("mobileScannerGithubURL") private var githubPagesURL: String = "https://sagarbangade.github.io/mactoys-mobile-scanner/"
     
     var body: some View {
-        Form {
-            KeyboardShortcuts.Recorder("Shortcut:", name: .mobileScanner)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVATION SHORTCUT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "command",
+                        iconColor: .cyan,
+                        title: "Handoff Hotkey",
+                        subtitle: "Show connection QR code on Mac to sync with iPhone camera"
+                    ) {
+                        KeyboardShortcuts.Recorder("", name: .mobileScanner)
+                    }
+                }
+            }
             
-            Section(header: Text("Configuration")) {
-                TextField("GitHub Pages URL", text: $githubPagesURL)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+            VStack(alignment: .leading, spacing: 8) {
+                Text("WEBRTC HANDOFF RELAY")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                
+                PremiumCard {
+                    PremiumRow(
+                        icon: "iphone.badge.play",
+                        iconColor: .blue,
+                        title: "WebRTC Client URL",
+                        subtitle: "Web app hosted for mobile scanner sync"
+                    ) {
+                        TextField("Client URL", text: $githubPagesURL)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .frame(width: 220)
+                    }
+                }
             }
         }
-        .padding()
     }
 }

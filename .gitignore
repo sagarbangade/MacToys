@@ -8,3 +8,25 @@ dist/
 # Web
 node_modules/
 WebApps/*/dist/
+
+# Local Python & Models
+__pycache__/
+*.pyc
+*.gguf
+models/
+adapters/
+data/
+*.yaml
+
+# Local test scripts & scratch binaries
+test*
+check_*
+benchmark_*
+find_ds.py
+SquiggleTest.swift
+squiggle
+td2
+td3
+fuse_model.py
+prepare_data.py
+

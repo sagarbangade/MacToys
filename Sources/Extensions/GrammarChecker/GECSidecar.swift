@@ -8,7 +8,7 @@ actor GECSidecar {
     private var process: Process?
     private var stdin: FileHandle?
     private var stdout: FileHandle?
-    private var isReady = false
+    private(set) var isReady = false
     private var pendingRequests: [String: CheckedContinuation<String, Error>] = [:]
     private var requestCounter = 0
     private var buffer = Data()
@@ -74,6 +74,7 @@ actor GECSidecar {
             let data = handle.availableData
             if let str = String(data: data, encoding: .utf8), !str.isEmpty {
                 print("[GEC stderr] \(str)", terminator: "")
+                debugLog("[GEC stderr] \(str.trimmingCharacters(in: .whitespacesAndNewlines))")
             }
         }
 
@@ -169,6 +170,7 @@ actor GECSidecar {
             // Handle status messages
             if let status = json["status"] as? String {
                 print("[GECSidecar] Status: \(status)")
+                debugLog("[GECSidecar] Status: \(status)")
                 if status == "ready" {
                     isReady = true
                 }
